@@ -22,12 +22,20 @@ install: venv
 refresh-data:
 	@echo "── stock ────────────────────────────────────────────"
 	$(PY) scripts/fetch_stock_price.py
-	@echo "── reddit (vital farms) ─────────────────────────────"
+	@echo "── short interest (yfinance snap + seed) ────────────"
+	$(PY) scripts/fetch_short_interest.py
+	@echo "── insider trades (EDGAR Form 4 + seed) ─────────────"
+	$(PY) scripts/fetch_insider_trades.py
+	@echo "── reddit (vital farms + linoleic pass) ─────────────"
 	$(PY) scripts/fetch_reddit_arctic.py
-	@echo "── news (gdelt + google news rss) ───────────────────"
-	$(PY) scripts/fetch_google_news.py
 	@echo "── competitor mentions ──────────────────────────────"
 	$(PY) scripts/fetch_competitor_mentions.py
+	@echo "── news (gdelt + google news rss) ───────────────────"
+	$(PY) scripts/fetch_google_news.py
+	@echo "── egg prices (BLS CPI + seed for USDA AMS) ─────────"
+	$(PY) scripts/fetch_egg_prices.py
+	@echo "── hpai / layer flock (APHIS + seed) ────────────────"
+	$(PY) scripts/fetch_hpai.py
 	@echo "── youtube (skipped if YOUTUBE_API_KEY missing) ─────"
 	$(PY) scripts/fetch_youtube.py || echo "  [warn] youtube fetcher failed — continuing"
 	@echo "── regenerate dashboard ─────────────────────────────"
@@ -36,12 +44,20 @@ refresh-data:
 refresh-fast:
 	@echo "── stock ────────────────────────────────────────────"
 	$(PY) scripts/fetch_stock_price.py
-	@echo "── reddit (vital farms) ─────────────────────────────"
+	@echo "── short interest ───────────────────────────────────"
+	$(PY) scripts/fetch_short_interest.py
+	@echo "── insider trades ───────────────────────────────────"
+	$(PY) scripts/fetch_insider_trades.py
+	@echo "── reddit ───────────────────────────────────────────"
 	$(PY) scripts/fetch_reddit_arctic.py
-	@echo "── news (gdelt + google news rss) ───────────────────"
+	@echo "── news ─────────────────────────────────────────────"
 	$(PY) scripts/fetch_google_news.py
 	@echo "── competitor mentions ──────────────────────────────"
 	$(PY) scripts/fetch_competitor_mentions.py
+	@echo "── egg prices ───────────────────────────────────────"
+	$(PY) scripts/fetch_egg_prices.py
+	@echo "── hpai ─────────────────────────────────────────────"
+	$(PY) scripts/fetch_hpai.py
 	@echo "── regenerate dashboard ─────────────────────────────"
 	$(PY) scripts/generate_vitl_dashboard.py
 

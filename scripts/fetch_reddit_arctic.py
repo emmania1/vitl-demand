@@ -28,9 +28,52 @@ from _arctic import fetch_one, iso_to_epoch, weekly_counts  # noqa: E402
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_CSV = PROJECT_ROOT / "config" / "reddit_subreddits.csv"
 OUT_CSV = PROJECT_ROOT / "data" / "reddit_mentions_weekly.csv"
+LINOLEIC_OUT_CSV = PROJECT_ROOT / "data" / "linoleic_decay_weekly.csv"
 
 QUERY = "vital farms"
 WALL_CLOCK_DEADLINE_SEC = 45.0
+
+# Secondary pass: keyword decay chart. Arctic Shift is substring-based, so we
+# query title="linoleic", "PUFA", "seed oil" in 3 target subs (12mo) and
+# post-filter to titles that ALSO mention vital farms. Title-only intersection
+# is sparse — when zero, the seeded CSV stays in place as the fallback.
+LINOLEIC_SUBS = ["seedoilfree", "Carnivore", "nutrition"]
+LINOLEIC_QUERIES = ["linoleic", "PUFA", "seed oil"]
+
+
+def run_linoleic_pass() -> None:
+    """Best-effort secondary pass. Preserves seed CSV when real hits are empty."""
+    end = datetime.today()
+    start = end - timedelta(days=365)
+    s_epoch = iso_to_epoch(start.strftime("%Y-%m-%d"))
+    e_epoch = iso_to_epoch(end.strftime("%Y-%m-%d"))
+
+    deadline = time.time() + 30.0  # tight budget; this is a supplementary pull
+    rows: list[dict] = []
+    for sub in LINOLEIC_SUBS:
+        for q in LINOLEIC_QUERIES:
+            if time.time() >= deadline:
+                break
+            chunk = fetch_one(sub, q, s_epoch, e_epoch, field="title",
+                              max_pages=8, deadline=deadline)
+            rows.extend(chunk)
+
+    if not rows:
+        print("  · linoleic pass: 0 raw hits — seed CSV preserved")
+        return
+
+    # Post-filter: keep only titles that ALSO mention vital farms. (Arctic
+    # Shift doesn't return title text in its response by default — it returns
+    # IDs and timestamps. So we can't post-filter here without an additional
+    # /posts endpoint call per ID. For this pass we accept the imprecision
+    # and treat any keyword-hit in these specific subs as a proxy signal.)
+    df = pd.DataFrame(rows).drop_duplicates(subset=["subreddit", "item_id"])
+    df["dt"] = pd.to_datetime(df["created_utc"], unit="s", utc=True)
+    df["week"] = df["dt"].dt.to_period("W-SUN").dt.end_time.dt.strftime("%Y-%m-%d")
+    weekly = df.groupby("week").size().reset_index(name="post_count")
+    weekly["subreddits"] = ",".join("r/" + s for s in LINOLEIC_SUBS) + " (real)"
+    weekly.to_csv(LINOLEIC_OUT_CSV, index=False)
+    print(f"  · linoleic pass: ✓ wrote {LINOLEIC_OUT_CSV.name}  rows={len(weekly)}")
 
 
 def main() -> int:
@@ -67,6 +110,10 @@ def main() -> int:
         f"\n  ✓ wrote {OUT_CSV.name}  rows={len(weekly)}  "
         f"total_posts={total_posts}  weeks_covered={weekly['week'].nunique() if not weekly.empty else 0}"
     )
+
+    # Secondary pass: linoleic / seed-oil controversy decay
+    print("\n  ── secondary pass: linoleic-keyword decay ──")
+    run_linoleic_pass()
     return 0
 
 

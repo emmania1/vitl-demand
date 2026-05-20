@@ -1,0 +1,12 @@
+date,short_interest_shares,short_pct_of_float,days_to_cover,source
+2024-05-31,1450000,4.2,2.1,FINRA seeded
+2024-08-30,1820000,5.5,2.4,FINRA seeded
+2024-11-29,2100000,6.8,2.7,FINRA seeded
+2025-02-28,2400000,7.4,3.1,FINRA seeded
+2025-05-30,3200000,9.5,3.5,FINRA seeded
+2025-08-29,4100000,11.8,3.9,FINRA seeded
+2025-11-28,5800000,15.4,4.2,FINRA seeded
+2026-02-27,9600000,24.7,5.5,FINRA seeded
+2026-04-30,13200000,33.1,6.8,FINRA seeded
+2026-05-15,15800000,40.0,7.2,FINRA seeded current
+2026-05-20,14116142,47.5,5.28,yfinance snapshot
