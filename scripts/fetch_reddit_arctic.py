@@ -23,7 +23,10 @@ import pandas as pd
 
 # Local helper (same dir)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _arctic import fetch_one, iso_to_epoch, weekly_counts  # noqa: E402
+from _arctic import (  # noqa: E402
+    fetch_one, iso_to_epoch, weekly_counts, apply_filters,
+    ARCTIC_BASE, ARCTIC_COMMENTS,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_CSV = PROJECT_ROOT / "config" / "reddit_subreddits.csv"
@@ -31,49 +34,106 @@ OUT_CSV = PROJECT_ROOT / "data" / "reddit_mentions_weekly.csv"
 LINOLEIC_OUT_CSV = PROJECT_ROOT / "data" / "linoleic_decay_weekly.csv"
 
 QUERY = "vital farms"
-WALL_CLOCK_DEADLINE_SEC = 45.0
+# 3-stage budget: title posts (45s) → body posts (45s) → comments (60s).
+# Bigger total budget because we're now hitting 3 endpoints, not 1.
+TITLE_DEADLINE_SEC   = 45.0
+BODY_DEADLINE_SEC    = 45.0
+COMMENT_DEADLINE_SEC = 60.0
 
-# Secondary pass: keyword decay chart. Arctic Shift is substring-based, so we
-# query title="linoleic", "PUFA", "seed oil" in 3 target subs (12mo) and
-# post-filter to titles that ALSO mention vital farms. Title-only intersection
-# is sparse — when zero, the seeded CSV stays in place as the fallback.
+# Linoleic-decay secondary pass: same 3 target subs, all 3 endpoints.
 LINOLEIC_SUBS = ["seedoilfree", "Carnivore", "nutrition"]
-LINOLEIC_QUERIES = ["linoleic", "PUFA", "seed oil"]
+
+
+def _fetch_three_endpoint(subreddits: list[str], query: str,
+                          s_epoch: int, e_epoch: int,
+                          title_deadline: float, body_deadline: float,
+                          comment_deadline: float,
+                          word_boundary_filter: str | None = None) -> list[dict]:
+    """Sweep posts (title field) → posts (selftext field) → comments (body
+    field) across the sub list. All three apply the standard bot/short-body
+    filters via apply_filters().
+    """
+    all_rows: list[dict] = []
+
+    # 1) title pass
+    for sub in subreddits:
+        if time.time() >= title_deadline: break
+        rows = fetch_one(sub, query, s_epoch, e_epoch, field="title",
+                         deadline=title_deadline, endpoint=ARCTIC_BASE)
+        if rows: print(f"    · r/{sub:24s} title={len(rows)}")
+        all_rows.extend(rows)
+
+    # 2) selftext (post body) pass — narrower max_pages because long bodies are rarer
+    for sub in subreddits:
+        if time.time() >= body_deadline: break
+        rows = fetch_one(sub, query, s_epoch, e_epoch, field="selftext",
+                         max_pages=20, deadline=body_deadline, endpoint=ARCTIC_BASE)
+        if rows: print(f"    · r/{sub:24s} body={len(rows)}")
+        all_rows.extend(rows)
+
+    # 3) comments pass — comments endpoint times out on big subs (millions of
+    # comments); social_intel's solution is a tight max_pages cap so even
+    # timeout-prone subs return fast. 3 pages × 100 = ~300 comments.
+    for sub in subreddits:
+        if time.time() >= comment_deadline: break
+        rows = fetch_one(sub, query, s_epoch, e_epoch, field="body",
+                         max_pages=3, deadline=comment_deadline,
+                         endpoint=ARCTIC_COMMENTS, page_sleep=1.0)
+        if rows: print(f"    · r/{sub:24s} cmts={len(rows)}")
+        all_rows.extend(rows)
+
+    # Filter bots + short comments (+ optional word-boundary regex)
+    filtered = apply_filters(all_rows, min_body_chars=30,
+                             word_boundary_query=word_boundary_filter)
+    dropped = len(all_rows) - len(filtered)
+    if dropped > 0:
+        print(f"    · filters dropped {dropped} bot/short/non-matching rows")
+    return filtered
 
 
 def run_linoleic_pass() -> None:
-    """Best-effort secondary pass. Preserves seed CSV when real hits are empty."""
+    """Linoleic / seed-oil controversy decay tracker. 12mo, 3 subs, all 3
+    endpoints. Word-boundary regex requires \\bvital farms\\b in body text
+    when body is present."""
     end = datetime.today()
     start = end - timedelta(days=365)
     s_epoch = iso_to_epoch(start.strftime("%Y-%m-%d"))
     e_epoch = iso_to_epoch(end.strftime("%Y-%m-%d"))
 
-    deadline = time.time() + 30.0  # tight budget; this is a supplementary pull
-    rows: list[dict] = []
-    for sub in LINOLEIC_SUBS:
-        for q in LINOLEIC_QUERIES:
-            if time.time() >= deadline:
-                break
-            chunk = fetch_one(sub, q, s_epoch, e_epoch, field="title",
-                              max_pages=8, deadline=deadline)
-            rows.extend(chunk)
-
+    now = time.time()
+    rows = _fetch_three_endpoint(
+        LINOLEIC_SUBS, "vital farms", s_epoch, e_epoch,
+        title_deadline=now + 25, body_deadline=now + 50, comment_deadline=now + 90,
+        word_boundary_filter="vital farms",
+    )
     if not rows:
-        print("  · linoleic pass: 0 raw hits — seed CSV preserved")
+        print("  · linoleic pass: 0 hits after filters — seed CSV preserved")
         return
 
-    # Post-filter: keep only titles that ALSO mention vital farms. (Arctic
-    # Shift doesn't return title text in its response by default — it returns
-    # IDs and timestamps. So we can't post-filter here without an additional
-    # /posts endpoint call per ID. For this pass we accept the imprecision
-    # and treat any keyword-hit in these specific subs as a proxy signal.)
-    df = pd.DataFrame(rows).drop_duplicates(subset=["subreddit", "item_id"])
+    df = pd.DataFrame(rows).drop_duplicates(subset=["subreddit", "item_id", "kind"])
     df["dt"] = pd.to_datetime(df["created_utc"], unit="s", utc=True)
     df["week"] = df["dt"].dt.to_period("W-SUN").dt.end_time.dt.strftime("%Y-%m-%d")
     weekly = df.groupby("week").size().reset_index(name="post_count")
-    weekly["subreddits"] = ",".join("r/" + s for s in LINOLEIC_SUBS) + " (real)"
+    weekly["subreddits"] = ",".join("r/" + s for s in LINOLEIC_SUBS) + " (title+body+comments)"
+
+    # Don't clobber a richer seeded series with a tiny real-fetch result —
+    # Arctic Shift's comments endpoint is heavily rate-limited so we often
+    # get 1-2 hits and that's worse than the seeded baseline.
+    MIN_OVERWRITE_ROWS = 10
+    if LINOLEIC_OUT_CSV.exists():
+        try:
+            existing = pd.read_csv(LINOLEIC_OUT_CSV)
+            if len(existing) > len(weekly) and len(weekly) < MIN_OVERWRITE_ROWS:
+                print(
+                    f"  · linoleic pass: real fetch returned {len(weekly)} rows < seed's "
+                    f"{len(existing)} — preserving seed (set MIN_OVERWRITE_ROWS lower to force)"
+                )
+                return
+        except Exception:
+            pass
+
     weekly.to_csv(LINOLEIC_OUT_CSV, index=False)
-    print(f"  · linoleic pass: ✓ wrote {LINOLEIC_OUT_CSV.name}  rows={len(weekly)}")
+    print(f"  · linoleic pass: ✓ wrote {LINOLEIC_OUT_CSV.name}  rows={len(weekly)}  total={weekly['post_count'].sum()}")
 
 
 def main() -> int:
@@ -83,35 +143,32 @@ def main() -> int:
 
     subs_df = pd.read_csv(CONFIG_CSV)
     subreddits = subs_df["subreddit"].dropna().astype(str).tolist()
-    print(f"  fetching {len(subreddits)} subs × query={QUERY!r} (36mo, title-only)")
+    print(f"  fetching {len(subreddits)} subs × query={QUERY!r} (36mo, title+body+comments)")
 
     end = datetime.today()
     start = end - timedelta(days=365 * 3)
     s_epoch = iso_to_epoch(start.strftime("%Y-%m-%d"))
     e_epoch = iso_to_epoch(end.strftime("%Y-%m-%d"))
 
-    deadline = time.time() + WALL_CLOCK_DEADLINE_SEC
-    all_rows: list[dict] = []
-    for sub in subreddits:
-        if time.time() >= deadline:
-            remaining = [s for s in subreddits[subreddits.index(sub):]]
-            print(f"  [warn] 45s deadline hit; skipped {len(remaining)} subs: {remaining}")
-            break
-        rows = fetch_one(sub, QUERY, s_epoch, e_epoch, field="title", deadline=deadline)
-        if rows:
-            print(f"  · r/{sub:24s} +{len(rows)} posts")
-        all_rows.extend(rows)
-
-    weekly = weekly_counts(all_rows)
-    OUT_CSV.parent.mkdir(parents=True, exist_ok=True)
-    weekly.to_csv(OUT_CSV, index=False)
-    total_posts = weekly["post_count"].sum() if not weekly.empty else 0
-    print(
-        f"\n  ✓ wrote {OUT_CSV.name}  rows={len(weekly)}  "
-        f"total_posts={total_posts}  weeks_covered={weekly['week'].nunique() if not weekly.empty else 0}"
+    now = time.time()
+    rows = _fetch_three_endpoint(
+        subreddits, QUERY, s_epoch, e_epoch,
+        title_deadline=now + TITLE_DEADLINE_SEC,
+        body_deadline=now + TITLE_DEADLINE_SEC + BODY_DEADLINE_SEC,
+        comment_deadline=now + TITLE_DEADLINE_SEC + BODY_DEADLINE_SEC + COMMENT_DEADLINE_SEC,
+        word_boundary_filter="vital farms",
     )
 
-    # Secondary pass: linoleic / seed-oil controversy decay
+    weekly = weekly_counts(rows)
+    OUT_CSV.parent.mkdir(parents=True, exist_ok=True)
+    weekly.to_csv(OUT_CSV, index=False)
+    total = weekly["post_count"].sum() if not weekly.empty else 0
+    print(
+        f"\n  ✓ wrote {OUT_CSV.name}  rows={len(weekly)}  total={total}  "
+        f"weeks={weekly['week'].nunique() if not weekly.empty else 0}"
+    )
+
+    # Linoleic / seed-oil controversy decay
     print("\n  ── secondary pass: linoleic-keyword decay ──")
     run_linoleic_pass()
     return 0

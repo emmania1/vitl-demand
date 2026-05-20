@@ -25,9 +25,18 @@ from pathlib import Path
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-OUT_CSV = PROJECT_ROOT / "data" / "youtube_monthly.csv"
+OUT_CSV          = PROJECT_ROOT / "data" / "youtube_monthly.csv"
+LINOLEIC_OUT_CSV = PROJECT_ROOT / "data" / "youtube_linoleic_monthly.csv"
 
 QUERIES = ["vital farms", "pasture raised eggs"]
+# Linoleic / seed-oil controversy decay query set. YouTube AND-search via
+# space-separated terms, so each entry is "vital farms <keyword>". Union by
+# video ID, monthly, 18-month window per task spec.
+LINOLEIC_QUERIES = [
+    "vital farms linoleic",
+    "vital farms PUFA",
+    "vital farms seed oil",
+]
 MAX_PER_MONTH = 50  # per query
 
 
@@ -48,112 +57,134 @@ def _iso_month_windows(start: datetime, end: datetime):
         cur = nxt
 
 
-def main() -> int:
+def _load_api_key() -> str:
     api_key = os.environ.get("YOUTUBE_API_KEY", "").strip()
-    if not api_key:
-        # Try loading from .env file if present
-        env_path = PROJECT_ROOT / ".env"
-        if env_path.exists():
-            for line in env_path.read_text().splitlines():
-                if line.startswith("YOUTUBE_API_KEY="):
-                    api_key = line.split("=", 1)[1].strip().strip('"').strip("'")
-                    break
+    if api_key: return api_key
+    env_path = PROJECT_ROOT / ".env"
+    if env_path.exists():
+        for line in env_path.read_text().splitlines():
+            if line.startswith("YOUTUBE_API_KEY="):
+                return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return ""
 
-    if not api_key:
-        print("  [skip] YOUTUBE_API_KEY not set in env or .env — no-op exit (0).", file=sys.stderr)
-        # Touch the output as an empty CSV so downstream code can degrade cleanly.
-        OUT_CSV.parent.mkdir(parents=True, exist_ok=True)
-        pd.DataFrame(columns=["month", "query", "video_count", "view_sum"]).to_csv(OUT_CSV, index=False)
-        return 0
 
+def _run_query_set(yt, queries: list[str], start: datetime, end: datetime,
+                   max_per_month: int, label: str) -> pd.DataFrame:
+    """Return per-(month, query) aggregate. Empty df if quota fails entire run."""
     try:
         from googleapiclient.errors import HttpError
     except ImportError:
         print("  [error] google-api-python-client not installed", file=sys.stderr)
-        return 1
+        return pd.DataFrame(columns=["month", "query", "video_count", "view_sum"])
 
-    yt = _client(api_key)
-
-    end = datetime.now(timezone.utc)
-    start = end - timedelta(days=365 * 3)
-    print(f"  fetching {len(QUERIES)} queries × 36mo windows (cap {MAX_PER_MONTH}/q/month)")
-
-    # video_id -> {published, query, views}
     by_id: dict[str, dict] = {}
-    per_query_cap = max(10, MAX_PER_MONTH // len(QUERIES))
+    per_query_cap = max(10, max_per_month // max(1, len(queries)))
 
-    for query in QUERIES:
+    for query in queries:
         for win_start, win_end, ym in _iso_month_windows(start, end):
             collected = 0
             page_token = None
             while collected < per_query_cap:
                 try:
                     resp = yt.search().list(
-                        part="id,snippet",
-                        q=query,
-                        type="video",
+                        part="id,snippet", q=query, type="video",
                         order="viewCount",
-                        publishedAfter=win_start,
-                        publishedBefore=win_end,
+                        publishedAfter=win_start, publishedBefore=win_end,
                         maxResults=min(50, per_query_cap - collected),
                         pageToken=page_token,
                     ).execute()
                 except HttpError as exc:
-                    print(f"  [warn] search.list failed for {query!r} {ym}: {exc}")
+                    # Quota / 403 — log once per query+month then move on
+                    msg = str(exc)[:120]
+                    if "quotaExceeded" in str(exc):
+                        print(f"  [quota] {label} {query!r} {ym}: quota exhausted")
+                    else:
+                        print(f"  [warn] {label} search {query!r} {ym}: {msg}")
                     break
                 items = resp.get("items", [])
                 for it in items:
                     vid = it["id"].get("videoId")
-                    if not vid or vid in by_id:
-                        continue
-                    by_id[vid] = {
-                        "published": it["snippet"]["publishedAt"],
-                        "query": query,
-                    }
+                    if not vid or vid in by_id: continue
+                    by_id[vid] = {"published": it["snippet"]["publishedAt"], "query": query}
                 collected += len(items)
                 page_token = resp.get("nextPageToken")
-                if not page_token:
-                    break
+                if not page_token: break
 
     if not by_id:
-        print("  no videos found", file=sys.stderr)
-        OUT_CSV.parent.mkdir(parents=True, exist_ok=True)
-        pd.DataFrame(columns=["month", "query", "video_count", "view_sum"]).to_csv(OUT_CSV, index=False)
-        return 0
+        return pd.DataFrame(columns=["month", "query", "video_count", "view_sum"])
 
     # videos.list for view counts, batches of 50
     ids = list(by_id.keys())
     for i in range(0, len(ids), 50):
-        batch = ids[i : i + 50]
+        batch = ids[i:i + 50]
         try:
             resp = yt.videos().list(part="statistics", id=",".join(batch)).execute()
         except HttpError as exc:
-            print(f"  [warn] videos.list failed: {exc}")
+            if "quotaExceeded" in str(exc):
+                print(f"  [quota] {label} videos.list: quota exhausted (counts only, no views)")
+            else:
+                print(f"  [warn] {label} videos.list: {str(exc)[:120]}")
             continue
         for it in resp.get("items", []):
             by_id[it["id"]]["views"] = int((it.get("statistics") or {}).get("viewCount") or 0)
 
-    rows = []
-    for vid, meta in by_id.items():
-        rows.append({
-            "published": meta["published"],
-            "query": meta["query"],
-            "views": meta.get("views", 0),
-        })
+    rows = [{"published": m["published"], "query": m["query"], "views": m.get("views", 0)}
+            for m in by_id.values()]
     df = pd.DataFrame(rows)
     df["dt"] = pd.to_datetime(df["published"], utc=True)
     df["month"] = df["dt"].dt.strftime("%Y-%m")
     out = (
         df.groupby(["month", "query"])
-        .agg(video_count=("views", "size"), view_sum=("views", "sum"))
-        .reset_index()
-        .sort_values(["month", "query"])
-        .reset_index(drop=True)
+          .agg(video_count=("views", "size"), view_sum=("views", "sum"))
+          .reset_index().sort_values(["month", "query"]).reset_index(drop=True)
     )
+    return out
 
+
+def main() -> int:
+    api_key = _load_api_key()
     OUT_CSV.parent.mkdir(parents=True, exist_ok=True)
-    out.to_csv(OUT_CSV, index=False)
-    print(f"\n  ✓ wrote {OUT_CSV.name}  rows={len(out)}  unique_videos={len(by_id)}")
+
+    if not api_key:
+        print("  [skip] YOUTUBE_API_KEY not set — no-op exit (0)", file=sys.stderr)
+        for p in (OUT_CSV, LINOLEIC_OUT_CSV):
+            if not p.exists():
+                pd.DataFrame(columns=["month","query","video_count","view_sum"]).to_csv(p, index=False)
+        return 0
+
+    yt = _client(api_key)
+    end = datetime.now(timezone.utc)
+
+    # General — 36mo window
+    print(f"  ── general pass: {len(QUERIES)} queries × 36mo ──")
+    general_df = _run_query_set(yt, QUERIES, end - timedelta(days=365*3), end, MAX_PER_MONTH, "general")
+    if not general_df.empty:
+        general_df.to_csv(OUT_CSV, index=False)
+        print(f"  ✓ wrote {OUT_CSV.name}  rows={len(general_df)}  "
+              f"video_total={int(general_df['video_count'].sum())}  "
+              f"view_total={int(general_df['view_sum'].sum()):,}")
+    else:
+        print(f"  · {OUT_CSV.name} preserved (general fetch empty; likely quota)")
+
+    # Linoleic / seed-oil — 18mo window, separate output
+    print(f"\n  ── linoleic pass: {len(LINOLEIC_QUERIES)} queries × 18mo ──")
+    lin_df = _run_query_set(yt, LINOLEIC_QUERIES,
+                            end - timedelta(days=365 + 180), end,
+                            max_per_month=30, label="linoleic")
+    if not lin_df.empty:
+        # Roll to month totals so chart consumer doesn't have to split by query
+        lin_monthly = (lin_df.groupby("month")
+                       .agg(video_count=("video_count","sum"), view_sum=("view_sum","sum"))
+                       .reset_index().sort_values("month").reset_index(drop=True))
+        lin_monthly.to_csv(LINOLEIC_OUT_CSV, index=False)
+        print(f"  ✓ wrote {LINOLEIC_OUT_CSV.name}  rows={len(lin_monthly)}  "
+              f"video_total={int(lin_monthly['video_count'].sum())}  "
+              f"view_total={int(lin_monthly['view_sum'].sum()):,}")
+    else:
+        print(f"  · {LINOLEIC_OUT_CSV.name} preserved (linoleic fetch empty; likely quota)")
+        if not LINOLEIC_OUT_CSV.exists():
+            pd.DataFrame(columns=["month","video_count","view_sum"]).to_csv(LINOLEIC_OUT_CSV, index=False)
+
     return 0
 
 

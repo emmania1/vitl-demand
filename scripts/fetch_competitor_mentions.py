@@ -28,7 +28,9 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _arctic import fetch_one, iso_to_epoch  # noqa: E402
+from _arctic import (  # noqa: E402
+    fetch_one, iso_to_epoch, apply_filters, ARCTIC_BASE, ARCTIC_COMMENTS,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_CSV = PROJECT_ROOT / "config" / "reddit_subreddits.csv"
@@ -43,10 +45,10 @@ COMPETITORS: list[tuple[str, str]] = [
     ("Happy Egg",        "happy egg"),
     ("Organic Valley",   "organic valley"),
 ]
-# 6 brands × 15 subs in 45s hits Arctic Shift's rate limiter halfway through.
-# Bumped to 240s and we narrow to highest-signal subs only (priority=core OR
-# the cooking-anchor subs) to keep the chart readable without burning quota.
-WALL_CLOCK_DEADLINE_SEC = 240.0
+# 6 brands × 3 endpoints × 8 core subs in 360s. Larger total budget because
+# we're now sweeping title + selftext + comments per brand. Narrowed sub set
+# (core priority) keeps the request count manageable.
+WALL_CLOCK_DEADLINE_SEC = 360.0
 PER_BRAND_PAUSE_SEC     = 1.5
 
 
@@ -76,29 +78,41 @@ def main() -> int:
     all_rows: list[dict] = []
     deadline_hit = False
     for brand_display, query in COMPETITORS:
-        if deadline_hit:
-            break
-        brand_count = 0
-        for sub in subreddits:
-            if time.time() >= deadline:
-                print(f"  [warn] {int(WALL_CLOCK_DEADLINE_SEC)}s deadline hit during {brand_display} (sub {sub})")
-                deadline_hit = True
-                break
-            rows = fetch_one(
-                sub, query, s_epoch, e_epoch, field="title",
-                max_pages=15, deadline=deadline, page_sleep=0.6,
-            )
-            for r in rows:
-                r["brand"] = brand_display
-            all_rows.extend(rows)
-            brand_count += len(rows)
-        print(f"  · {brand_display:18s}  +{brand_count} posts")
+        if deadline_hit: break
+        brand_rows: list[dict] = []
+        # Title + selftext only for competitor sweep. Comments endpoint is
+        # so heavily 422-rate-limited that adding it to 6 brands × 8 subs
+        # blows the deadline without returning data. Title+body still
+        # catches body-text brand mentions; the deeper comment dive lives
+        # in fetch_reddit_arctic.py for the headline-sub table.
+        for field, endpoint, label, max_p in [
+            ("title",    ARCTIC_BASE, "title", 15),
+            ("selftext", ARCTIC_BASE, "body",  10),
+        ]:
+            for sub in subreddits:
+                if time.time() >= deadline:
+                    print(f"  [warn] {int(WALL_CLOCK_DEADLINE_SEC)}s deadline hit during {brand_display}/{label} (sub {sub})")
+                    deadline_hit = True
+                    break
+                rows = fetch_one(
+                    sub, query, s_epoch, e_epoch, field=field,
+                    max_pages=max_p, deadline=deadline, page_sleep=0.6,
+                    endpoint=endpoint,
+                )
+                brand_rows.extend(rows)
+            if deadline_hit: break
+        # Apply bot/short-body filters before tagging brand
+        filtered = apply_filters(brand_rows, min_body_chars=30, word_boundary_query=query)
+        for r in filtered:
+            r["brand"] = brand_display
+        all_rows.extend(filtered)
+        print(f"  · {brand_display:18s}  +{len(filtered)} (filtered from {len(brand_rows)} raw)")
         time.sleep(PER_BRAND_PAUSE_SEC)
 
     if not all_rows:
         out = pd.DataFrame(columns=["week", "brand", "post_count"])
     else:
-        df = pd.DataFrame(all_rows).drop_duplicates(subset=["brand", "subreddit", "item_id"])
+        df = pd.DataFrame(all_rows).drop_duplicates(subset=["brand", "subreddit", "item_id", "kind"])
         df["dt"] = pd.to_datetime(df["created_utc"], unit="s", utc=True)
         df["week"] = df["dt"].dt.to_period("W-SUN").dt.end_time.dt.strftime("%Y-%m-%d")
         out = (

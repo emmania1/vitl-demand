@@ -107,6 +107,7 @@ def load_all() -> dict:
         "reddit_weekly":      safe_read(DATA_DIR / "reddit_mentions_weekly.csv"),
         "competitor_weekly":  safe_read(DATA_DIR / "competitor_mentions_weekly.csv"),
         "youtube_monthly":    safe_read(DATA_DIR / "youtube_monthly.csv"),
+        "youtube_linoleic":   safe_read(DATA_DIR / "youtube_linoleic_monthly.csv"),
         "news":               safe_read(DATA_DIR / "news_articles.csv"),
         # Pass-2 additions
         "events":             safe_read(DATA_DIR / "event_reactions.csv"),
@@ -265,6 +266,14 @@ def compute_setup(d: dict) -> dict:
     if len(cash_rows) >= 2 and not cash_rows[0]["tbd"] and not cash_rows[1]["tbd"]:
         cash_change = cash_rows[1]["value"] - cash_rows[0]["value"]
 
+    # Implied runway: latest non-TBD cash / |quarterly burn|
+    runway_qs = None; current_cash = None; q_burn = None
+    non_tbd = [r for r in cash_rows if not r["tbd"]]
+    if len(non_tbd) >= 2 and cash_change is not None and cash_change < 0:
+        current_cash = non_tbd[-1]["value"]
+        q_burn = abs(cash_change)
+        runway_qs = round(current_cash / q_burn, 1) if q_burn > 0 else None
+
     # Insiders
     insiders_table = []
     cluster_summary = None
@@ -314,6 +323,9 @@ def compute_setup(d: dict) -> dict:
     return {
         "cash_rows": cash_rows,
         "cash_change": cash_change,
+        "runway_qs": runway_qs,
+        "current_cash": current_cash,
+        "q_burn": q_burn,
         "insiders": insiders_table,
         "cluster": cluster_summary,
         "short_series": short_series,
@@ -480,6 +492,7 @@ def compute_community(d: dict) -> dict:
     """Section 04 — Reddit table + 6-brand SoV (zeros guaranteed) + linoleic decay."""
     subs = d["subs"]; reddit_weekly = d["reddit_weekly"]; competitor_weekly = d["competitor_weekly"]
     linoleic = d["linoleic"]
+    youtube_linoleic = d["youtube_linoleic"]
 
     if subs.empty:
         sub_rows, brand_sov, totals = [], {"weeks": [], "brands": {}}, {}
@@ -520,14 +533,28 @@ def compute_community(d: dict) -> dict:
                     brand_sov["brands"][brand] = [0] * len(weeks)
                 totals[brand] = int(sum(brand_sov["brands"][brand]))
 
-    # Linoleic decay
-    lin_series = {"weeks": [], "counts": []}
+    # Linoleic decay — Reddit (weekly) + optional YouTube (monthly, resampled to weekly)
+    lin_series = {"weeks": [], "reddit": [], "youtube": []}
     if not linoleic.empty:
         L = linoleic.copy().sort_values("week")
-        lin_series = {
-            "weeks":  L["week"].astype(str).tolist(),
-            "counts": L["post_count"].astype(int).tolist(),
-        }
+        lin_series["weeks"] = L["week"].astype(str).tolist()
+        lin_series["reddit"] = L["post_count"].astype(int).tolist()
+        lin_series["youtube"] = [None] * len(lin_series["weeks"])  # default
+
+    if not youtube_linoleic.empty and lin_series["weeks"]:
+        # Forward-fill monthly video_count to the existing Reddit weekly axis
+        yl = youtube_linoleic.copy().sort_values("month")
+        yl["dt"] = pd.to_datetime(yl["month"], format="%Y-%m")
+        yt_series = []
+        for wk in lin_series["weeks"]:
+            wk_dt = pd.to_datetime(wk)
+            prior = yl[yl["dt"] <= wk_dt]
+            if prior.empty:
+                yt_series.append(None)
+            else:
+                # Spread the latest month's videos evenly across ~4 weeks
+                yt_series.append(round(float(prior.iloc[-1]["video_count"]) / 4.0, 2))
+        lin_series["youtube"] = yt_series
 
     return {"sub_rows": sub_rows, "brand_sov": brand_sov, "totals": totals,
             "linoleic": lin_series}
@@ -713,6 +740,18 @@ def render_setup(setup: dict) -> str:
                    if cluster else "no cluster detected")
     cash_change = setup.get("cash_change")
     cash_kpi = (f"${abs(cash_change):.0f}M burned in Q1" if cash_change is not None else "—")
+    runway_qs = setup.get("runway_qs")
+    if runway_qs is not None:
+        runway_block = (
+            f'<div class="runway-gauge">'
+            f'<div class="runway-headline">Implied runway: <strong>{runway_qs:.1f} quarters</strong> '
+            f'at Q1 burn rate</div>'
+            f'<div class="runway-sub">${setup["current_cash"]:.0f}M cash ÷ ${setup["q_burn"]:.0f}M/quarter burn · '
+            f'<em>undrawn revolver extends this; not modeled here</em></div>'
+            f'</div>'
+        )
+    else:
+        runway_block = ""
 
     # Insider table rows
     insider_rows_html = ""
@@ -764,6 +803,7 @@ def render_setup(setup: dict) -> str:
       <div class="setup-kpi">{cash_kpi}</div>
     </div>
     <div class="chart-wrap" style="height:220px"><canvas id="cashChart"></canvas></div>
+    {runway_block}
     <div class="setup-foot">Undrawn revolver provides cushion. JPM covenant talks ongoing per Q1 call.</div>
     {refresh_footer(DATA_DIR / "cash_position.csv")}
   </div>
@@ -1338,6 +1378,13 @@ def build_html(d: dict) -> str:
   .setup-foot {{ font-size: 11.5px; color: var(--muted); margin-top: 10px;
                  padding-top: 10px; border-top: 1px dashed var(--border);
                  line-height: 1.55; font-style: italic; }}
+  .runway-gauge {{ margin-top: 10px; padding: 10px 14px;
+                   background: rgba(201,93,74,0.06); border-left: 3px solid var(--neg);
+                   border-radius: 4px; }}
+  .runway-headline {{ font-size: 13px; color: var(--text); line-height: 1.5; }}
+  .runway-headline strong {{ color: var(--neg); font-weight: 700; font-size: 15px; }}
+  .runway-sub {{ font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.5; }}
+  .runway-sub em {{ color: var(--text-soft); font-style: italic; }}
   .setup-buyback .buyback-body {{ font-size: 13px; color: var(--text-soft);
                                   line-height: 1.7; padding: 8px 0; }}
   .setup-buyback .buyback-body p:first-child {{ font-size: 28px; font-weight: 700;
@@ -1755,19 +1802,27 @@ def build_html(d: dict) -> str:
       if (el) el.parentElement.innerHTML = '<div class="placeholder">competitor_mentions_weekly.csv not present yet — run <code>make refresh-data</code></div>';
     }}
 
-    // ─── Section 04 — Linoleic decay ──────────────────────────────────────
+    // ─── Section 04 — Linoleic decay (Reddit + YouTube on same y-scale) ──
     const lin = d.comm.linoleic;
+    const linDatasets = [
+      {{ label: 'Reddit posts/comments (weekly)', data: lin.reddit, borderColor: d.purple,
+         backgroundColor: 'rgba(142,109,180,0.14)', borderWidth: 2, tension: 0.3,
+         pointRadius: 0, fill: true }},
+    ];
+    if (lin.youtube && lin.youtube.some(v => v !== null && v !== undefined)) {{
+      linDatasets.push({{
+        label: 'YouTube videos (monthly, normalized)',
+        data: lin.youtube, borderColor: NEG,
+        backgroundColor: 'transparent', borderWidth: 2, borderDash: [5,3],
+        tension: 0.3, pointRadius: 0, spanGaps: true,
+      }});
+    }}
     new Chart(document.getElementById('linoleicChart'), {{
       type: 'line',
-      data: {{
-        labels: lin.weeks,
-        datasets: [{{ label: 'Posts (weekly)', data: lin.counts, borderColor: d.purple,
-                      backgroundColor: 'rgba(142,109,180,0.12)', borderWidth: 2, tension: 0.3,
-                      pointRadius: 0, fill: true }}],
-      }},
+      data: {{ labels: lin.weeks, datasets: linDatasets }},
       options: {{
         responsive: true, maintainAspectRatio: false,
-        plugins: {{ legend: {{ display: false }} }},
+        plugins: {{ legend: {{ position: 'bottom', labels: {{ font: {{ size: 11 }} }} }} }},
         scales: {{
           x: {{ grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }}, maxTicksLimit: 8, autoSkip: true }} }},
           y: {{ grid: {{ color: 'rgba(0,0,0,0.04)' }}, ticks: {{ font: {{ size: 10 }} }} }},
