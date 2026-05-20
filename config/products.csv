@@ -1,0 +1,11 @@
+key,display_name,line,launch_year,priority,notes
+eggs_lg_white,Pasture-Raised Large Eggs (White),eggs,2007,core,Flagship SKU — Whole Foods / Sprouts / Kroger
+eggs_lg_brown,Pasture-Raised Large Brown Eggs,eggs,2007,core,Most-stocked premium SKU
+eggs_xl,Pasture-Raised XL Eggs,eggs,2015,core,Step-up SKU
+eggs_organic,Organic Pasture-Raised Eggs,eggs,2017,core,Organic-certified premium tier
+eggs_hardboiled,Hard-Boiled Eggs,eggs,2021,growth,Convenience extension — newer SKU
+butter_salted,Pasture-Raised Salted Butter,butter,2017,core,Lead butter SKU
+butter_unsalted,Pasture-Raised Unsalted Butter,butter,2017,core,
+butter_garlic_herb,Garlic & Herb Butter,butter,2023,growth,Flavored butter LTO/permanent
+ghee,Pasture-Raised Ghee,ghee,2018,growth,Indian/paleo/keto positioning
+liquid_whole_eggs,Liquid Whole Eggs,eggs,2024,new,Foodservice / convenience SKU

@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vital Farms (VITL) Demand Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<style>
+  /* Vital Farms — warm cream / pasture-green palette */
+  :root {
+    --bg:       #fbf8ef;
+    --surface:  #ffffff;
+    --surface2: #f7f3e6;
+    --border:   #e4dccd;
+    --border-strong: #d4c8ad;
+    --text:     #2b2f25;
+    --text-soft:#4a4f3f;
+    --muted:    #8b8b78;
+    --accent:   #2E5A3C;
+    --accent2:  #F4C430;
+    --accent3:  #A8C49B;
+    --pos:      #2E5A3C;
+    --neg:      #C95D4A;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--text);
+         font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+         font-size: 14px; line-height: 1.6; }
+  a { color: var(--text); text-decoration: none; }
+  a:hover { color: var(--accent); }
+
+  .topbar { background: var(--surface); border-bottom: 1px solid var(--border);
+             padding: 12px 32px; display: flex; align-items: center;
+             justify-content: space-between; gap: 20px;
+             position: sticky; top: 0; z-index: 100;
+             box-shadow: 0 1px 0 rgba(45,47,37,0.03); }
+  .topbar h1 { font-size: 16px; font-weight: 700; letter-spacing: -0.3px; color: var(--text); }
+  .topbar .meta { color: var(--muted); font-size: 11px; }
+  .topbar-nav { display: flex; gap: 4px; flex-wrap: nowrap; }
+  .nav-btn { font-size: 11px; font-weight: 600; letter-spacing: 0.3px;
+              color: var(--muted); background: transparent;
+              border: 1px solid var(--border); border-radius: 999px;
+              padding: 5px 12px; white-space: nowrap; cursor: pointer;
+              transition: color .15s, border-color .15s, background .15s; }
+  .nav-btn:hover { color: var(--accent); border-color: var(--accent); background: rgba(46,90,60,0.06); }
+  .summary-btn { background: var(--accent); color: #fff; border: none;
+                  border-radius: 999px; padding: 7px 16px;
+                  font-size: 12px; font-weight: 700; letter-spacing: 0.3px;
+                  cursor: pointer; white-space: nowrap;
+                  transition: background .15s, transform .1s; }
+  .summary-btn:hover { background: #24482f; transform: translateY(-1px); }
+
+  .container { max-width: 1280px; margin: 0 auto; padding: 24px 32px; }
+
+  .section-header { margin: 44px 0 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+  .section-header:first-of-type { margin-top: 0; }
+  .section-num { font-size: 10px; font-weight: 700; color: var(--accent); letter-spacing: 1.8px; }
+  .section-title { font-size: 21px; font-weight: 700; margin-top: 4px; letter-spacing: -0.4px; color: var(--text); }
+  .section-blurb { font-size: 13px; color: var(--text-soft); line-height: 1.6;
+                    margin-top: 12px; padding: 12px 16px; max-width: 880px;
+                    background: #fef9ec; border: 1px solid #f2e4b6;
+                    border-left: 4px solid var(--accent2); border-radius: 6px; }
+  .section-blurb strong { color: var(--text); font-weight: 700; }
+
+  .hero-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  .hero-tile { background: var(--surface); border: 1px solid var(--border);
+                border-radius: 10px; padding: 20px 22px;
+                box-shadow: 0 1px 3px rgba(45,47,37,0.04); }
+  .hero-label { font-size: 10px; color: var(--muted); text-transform: uppercase;
+                 letter-spacing: 0.8px; margin-bottom: 10px; font-weight: 700; }
+  .hero-val { font-size: 34px; font-weight: 700; letter-spacing: -0.8px; color: var(--text); }
+  .hero-val-suffix { font-size: 12px; color: var(--muted); font-weight: 500; margin-left: 8px; }
+  .hero-sub { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+
+  .chart-card { background: var(--surface); border: 1px solid var(--border);
+                 border-radius: 10px; padding: 20px 22px; margin-bottom: 14px;
+                 box-shadow: 0 1px 3px rgba(45,47,37,0.04); }
+  .chart-card h3 { font-size: 14px; font-weight: 700; margin-bottom: 14px;
+                    letter-spacing: -0.2px; color: var(--text); }
+  .chart-wrap { position: relative; height: 300px; }
+  .chart-wrap.big { height: 380px; }
+
+  .source-caption { font-size: 10.5px; color: var(--muted);
+                     line-height: 1.55; margin-top: 12px;
+                     padding-top: 10px; border-top: 1px dashed var(--border);
+                     font-style: italic; }
+  .source-caption code { color: var(--accent); font-family: 'SF Mono', Menlo, Consolas, monospace;
+                          font-size: 10.5px; font-style: normal;
+                          background: rgba(46,90,60,0.08); padding: 1px 5px; border-radius: 3px; }
+
+  .dual-col { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 1024px) { .dual-col { grid-template-columns: 1fr; } }
+
+  .table-card { background: var(--surface); border: 1px solid var(--border);
+                 border-radius: 10px; overflow: auto;
+                 box-shadow: 0 1px 3px rgba(45,47,37,0.04); }
+  table { width: 100%; border-collapse: collapse; }
+  th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;
+        color: var(--muted); font-weight: 700; padding: 10px 12px;
+        border-bottom: 1px solid var(--border); text-align: left;
+        background: var(--surface2); white-space: nowrap; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--text); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(46,90,60,0.04); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  th.num { text-align: right; }
+  td.muted-cell { color: var(--muted); font-size: 11.5px; }
+  td strong { color: var(--text); font-weight: 700; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+          margin-right: 8px; vertical-align: middle; }
+
+  .badge { display: inline-block; padding: 3px 8px; border-radius: 999px;
+            font-size: 10px; font-weight: 700; letter-spacing: 0.3px; white-space: nowrap; }
+  .badge-pos { background: #e1f0dc; color: #2a5a30; }
+  .badge-neg { background: #f8e2dc; color: #b34738; }
+  .badge-na  { background: #eee7d6; color: #8b8271; }
+  .badge-mid { background: #fdefc9; color: #8a6b10; }
+
+  .placeholder { background: var(--surface2); border: 1px dashed var(--border-strong);
+                  border-radius: 8px; padding: 22px 18px; text-align: center;
+                  color: var(--muted); font-size: 12.5px; }
+  .placeholder code { color: var(--accent); font-family: 'SF Mono', Menlo, Consolas, monospace; }
+
+  /* Modal */
+  .modal-backdrop { display: none; position: fixed; inset: 0;
+                     background: rgba(20,22,15,0.5); z-index: 200;
+                     align-items: flex-start; justify-content: center; padding: 60px 20px; }
+  .modal-backdrop.open { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border);
+            border-radius: 12px; max-width: 720px; width: 100%;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.18); overflow: hidden; }
+  .modal-header { display: flex; justify-content: space-between; align-items: flex-start;
+                   padding: 22px 26px 14px; border-bottom: 1px solid var(--border); }
+  .modal-title { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
+  .modal-sub { font-size: 11px; color: var(--muted); margin-top: 3px; }
+  .modal-close { background: transparent; border: none; font-size: 24px; color: var(--muted);
+                  cursor: pointer; line-height: 1; padding: 0 4px; }
+  .modal-body { padding: 18px 26px 26px; max-height: 70vh; overflow-y: auto; }
+  .modal-section-title { font-size: 10.5px; text-transform: uppercase; letter-spacing: 1.2px;
+                          color: var(--accent); font-weight: 700; margin: 14px 0 8px; }
+  .modal-list { list-style: none; padding-left: 0; font-size: 13px; color: var(--text-soft); line-height: 1.7; }
+  .modal-list li { padding: 5px 0 5px 16px; border-bottom: 1px dashed var(--border); position: relative; }
+  .modal-list li:before { content: "›"; position: absolute; left: 0; color: var(--accent); font-weight: 700; }
+  .modal-list li:last-child { border-bottom: none; }
+  .modal-list code { color: var(--accent); background: rgba(46,90,60,0.08);
+                      padding: 1px 5px; border-radius: 3px; font-family: 'SF Mono', Menlo, Consolas, monospace;
+                      font-size: 11.5px; }
+
+  footer { text-align: center; color: var(--muted); font-size: 11px;
+            padding: 28px 0; border-top: 1px solid var(--border); margin-top: 40px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>Vital Farms <span style="color:var(--muted);font-weight:400">— VITL Demand Intelligence</span></h1>
+  <div class="topbar-nav">
+    <a class="nav-btn" href="#overview">Overview</a>
+    <a class="nav-btn" href="#retail">Retail</a>
+    <a class="nav-btn" href="#heat">SKU Heat</a>
+    <a class="nav-btn" href="#community">Community</a>
+    <a class="nav-btn" href="#news">News</a>
+    <a class="nav-btn" href="#pricing">Pricing</a>
+    <a class="nav-btn" href="#supply">Supply</a>
+    <a class="nav-btn" href="#stock">Stock</a>
+  </div>
+  <button class="summary-btn" onclick="document.getElementById('summaryModal').classList.add('open');document.getElementById('summaryModal').style.display='flex'">
+    Generate Summary
+  </button>
+</div>
+
+<div class="container">
+  
+<div class="section-header" id="overview">
+  <div class="section-num">SECTION 01</div>
+  <div class="section-title">Overview</div>
+</div>
+
+<div class="hero-row">
+  <div class="hero-tile">
+    <div class="hero-label">SKU Universe</div>
+    <div class="hero-val">10</div>
+    <div class="hero-sub">products tracked across eggs, butter, ghee, adjacencies</div>
+  </div>
+  <div class="hero-tile">
+    <div class="hero-label">Retail Banners Monitored</div>
+    <div class="hero-val">12</div>
+    <div class="hero-sub">natural / grocery / mass / club / ecom</div>
+  </div>
+  <div class="hero-tile">
+    <div class="hero-label">Composite Demand YoY (placeholder)</div>
+    <div class="hero-val">+7.3<span class="hero-val-suffix">%</span></div>
+    <div class="hero-sub">replace once Reddit/YouTube/News fetchers land</div>
+  </div>
+</div>
+
+<div class="chart-card">
+  <h3>24-Month Composite Demand Trajectory by Line</h3>
+  <div class="chart-wrap big"><canvas id="trajChart"></canvas></div>
+  <div class="source-caption">Placeholder series. Once <code>fetch_reddit_arctic.py</code> + <code>fetch_youtube.py</code> + <code>fetch_google_news.py</code> are wired, this chart sums per-line signal from each source.</div>
+</div>
+
+  
+<div class="section-header" id="retail">
+  <div class="section-num">SECTION 02</div>
+  <div class="section-title">Retail Distribution &amp; Shelf</div>
+  <div class="section-blurb">
+    The <strong>core CPG page</strong>. For VITL specifically — does premium-egg distribution
+    continue widening into mass / club, and does on-shelf availability hold during supply shocks?
+    % ACV is a placeholder until a licensed scan-data feed (NielsenIQ / Numerator) or Instacart proxy
+    is wired in.
+  </div>
+</div>
+
+<div class="table-card">
+  <table>
+    <thead><tr>
+      <th>Retailer</th><th>Channel</th><th class="num">% ACV</th>
+      <th class="num">SKUs Stocked</th><th class="num">OOS %</th><th>Notes</th>
+    </tr></thead>
+    <tbody>
+<tr>
+  <td><strong>Whole Foods</strong></td>
+  <td><span class="dot" style="background:#2E5A3C"></span>natural</td>
+  <td class="num">100%</td>
+  <td class="num">9</td>
+  <td class="num"><span class="badge badge-pos">0%</span></td>
+  <td class="muted-cell">Anchor account since 2010s</td>
+</tr>
+<tr>
+  <td><strong>Sprouts Farmers Market</strong></td>
+  <td><span class="dot" style="background:#2E5A3C"></span>natural</td>
+  <td class="num">100%</td>
+  <td class="num">8</td>
+  <td class="num"><span class="badge badge-pos">0%</span></td>
+  <td class="muted-cell">nan</td>
+</tr>
+<tr>
+  <td><strong>Target</strong></td>
+  <td><span class="dot" style="background:#F4C430"></span>mass</td>
+  <td class="num">78%</td>
+  <td class="num">5</td>
+  <td class="num"><span class="badge badge-mid">0%</span></td>
+  <td class="muted-cell">Distribution expansion vector</td>
+</tr>
+<tr>
+  <td><strong>Kroger</strong></td>
+  <td><span class="dot" style="background:#6b94b1"></span>grocery</td>
+  <td class="num">62%</td>
+  <td class="num">6</td>
+  <td class="num"><span class="badge badge-mid">0%</span></td>
+  <td class="muted-cell">Largest grocery footprint</td>
+</tr>
+<tr>
+  <td><strong>Walmart</strong></td>
+  <td><span class="dot" style="background:#F4C430"></span>mass</td>
+  <td class="num">41%</td>
+  <td class="num">3</td>
+  <td class="num"><span class="badge badge-mid">0%</span></td>
+  <td class="muted-cell">Premium-tier penetration</td>
+</tr>
+<tr>
+  <td><strong>Costco</strong></td>
+  <td><span class="dot" style="background:#8e6db4"></span>club</td>
+  <td class="num">18%</td>
+  <td class="num">2</td>
+  <td class="num"><span class="badge badge-na">0%</span></td>
+  <td class="muted-cell">Club-pack opportunity</td>
+</tr>
+<tr>
+  <td><strong>Publix</strong></td>
+  <td><span class="dot" style="background:#6b94b1"></span>grocery</td>
+  <td class="num">55%</td>
+  <td class="num">4</td>
+  <td class="num"><span class="badge badge-mid">0%</span></td>
+  <td class="muted-cell">Southeast US</td>
+</tr>
+<tr>
+  <td><strong>Trader Joe's</strong></td>
+  <td><span class="dot" style="background:#2E5A3C"></span>natural</td>
+  <td class="num">0%</td>
+  <td class="num">0</td>
+  <td class="num"><span class="badge badge-na">0%</span></td>
+  <td class="muted-cell">Private-label competition risk</td>
+</tr>
+<tr>
+  <td><strong>H-E-B</strong></td>
+  <td><span class="dot" style="background:#6b94b1"></span>grocery</td>
+  <td class="num">47%</td>
+  <td class="num">4</td>
+  <td class="num"><span class="badge badge-mid">0%</span></td>
+  <td class="muted-cell">Texas</td>
+</tr>
+<tr>
+  <td><strong>Wegmans</strong></td>
+  <td><span class="dot" style="background:#6b94b1"></span>grocery</td>
+  <td class="num">82%</td>
+  <td class="num">7</td>
+  <td class="num"><span class="badge badge-pos">0%</span></td>
+  <td class="muted-cell">Northeast</td>
+</tr>
+<tr>
+  <td><strong>Amazon Fresh</strong></td>
+  <td><span class="dot" style="background:#e67e22"></span>ecom</td>
+  <td class="num">90%</td>
+  <td class="num">8</td>
+  <td class="num"><span class="badge badge-pos">0%</span></td>
+  <td class="muted-cell">nan</td>
+</tr>
+<tr>
+  <td><strong>Instacart</strong></td>
+  <td><span class="dot" style="background:#e67e22"></span>ecom</td>
+  <td class="num">95%</td>
+  <td class="num">9</td>
+  <td class="num"><span class="badge badge-pos">0%</span></td>
+  <td class="muted-cell">Cross-banner ecom proxy</td>
+</tr></tbody>
+  </table>
+</div>
+
+<div class="source-caption">Placeholder distribution snapshot. Real values to come from licensed retail scan data, Instacart cross-banner proxy, or store-locator scrapes.</div>
+
+  
+<div class="section-header" id="heat">
+  <div class="section-num">SECTION 03</div>
+  <div class="section-title">Product Line Heat Map</div>
+  <div class="section-blurb">
+    Per-SKU signal: eggs (flagship) vs butter (mid-stage extension) vs ghee (newer / paleo-keto)
+    vs liquid-egg / hard-boiled (adjacencies). YoY columns light up once
+    <code>fetch_reddit_arctic.py</code>, <code>fetch_youtube.py</code>, and
+    <code>fetch_google_trends.py</code> are wired.
+  </div>
+</div>
+
+<div class="table-card">
+  <table>
+    <thead><tr>
+      <th>SKU</th><th>Line</th><th>Launched</th><th>Priority</th>
+      <th class="num">Reddit YoY</th><th class="num">YouTube YoY</th><th class="num">Search YoY</th>
+      <th>Notes</th>
+    </tr></thead>
+    <tbody>
+<tr>
+  <td><strong>Pasture-Raised Large Eggs (White)</strong></td>
+  <td><span class="dot" style="background:#2E5A3C"></span>Eggs</td>
+  <td>2007</td>
+  <td><span class="badge badge-na">core</span></td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+  <td class="muted-cell">Flagship SKU — Whole Foods / Sprouts / Kroger</td>
+</tr>
+<tr>
+  <td><strong>Pasture-Raised Large Brown Eggs</strong></td>
+  <td><span class="dot" style="background:#2E5A3C"></span>Eggs</td>
+  <td>2007</td>
+  <td><span class="badge badge-na">core</span></td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+  <td class="muted-cell">Most-stocked premium SKU</td>
+</tr>
+<tr>
+  <td><strong>Pasture-Raised XL Eggs</strong></td>
+  <td><span class="dot" style="background:#2E5A3C"></span>Eggs</td>
+  <td>2015</td>
+  <td><span class="badge badge-na">core</span></td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+  <td class="muted-cell">Step-up SKU</td>
+</tr>
+<tr>
+  <td><strong>Organic Pasture-Raised Eggs</strong></td>
+  <td><span class="dot" style="background:#2E5A3C"></span>Eggs</td>
+  <td>2017</td>
+  <td><span class="badge badge-na">core</span></td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+  <td class="muted-cell">Organic-certified premium tier</td>
+</tr>
+<tr>
+  <td><strong>Hard-Boiled Eggs</strong></td>
+  <td><span class="dot" style="background:#2E5A3C"></span>Eggs</td>
+  <td>2021</td>
+  <td><span class="badge badge-na">growth</span></td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+  <td class="muted-cell">Convenience extension — newer SKU</td>
+</tr>
+<tr>
+  <td><strong>Pasture-Raised Salted Butter</strong></td>
+  <td><span class="dot" style="background:#F4C430"></span>Butter</td>
+  <td>2017</td>
+  <td><span class="badge badge-na">core</span></td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+  <td class="muted-cell">Lead butter SKU</td>
+</tr>
+<tr>
+  <td><strong>Pasture-Raised Unsalted Butter</strong></td>
+  <td><span class="dot" style="background:#F4C430"></span>Butter</td>
+  <td>2017</td>
+  <td><span class="badge badge-na">core</span></td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+  <td class="muted-cell">nan</td>
+</tr>
+<tr>
+  <td><strong>Garlic & Herb Butter</strong></td>
+  <td><span class="dot" style="background:#F4C430"></span>Butter</td>
+  <td>2023</td>
+  <td><span class="badge badge-na">growth</span></td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+  <td class="muted-cell">Flavored butter LTO/permanent</td>
+</tr>
+<tr>
+  <td><strong>Pasture-Raised Ghee</strong></td>
+  <td><span class="dot" style="background:#B5651D"></span>Ghee</td>
+  <td>2018</td>
+  <td><span class="badge badge-na">growth</span></td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+  <td class="muted-cell">Indian/paleo/keto positioning</td>
+</tr>
+<tr>
+  <td><strong>Liquid Whole Eggs</strong></td>
+  <td><span class="dot" style="background:#2E5A3C"></span>Eggs</td>
+  <td>2024</td>
+  <td><span class="badge badge-na">new</span></td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+  <td class="muted-cell">Foodservice / convenience SKU</td>
+</tr></tbody>
+  </table>
+</div>
+
+
+  
+<div class="section-header" id="community">
+  <div class="section-num">SECTION 04</div>
+  <div class="section-title">Community &amp; Social Signal</div>
+  <div class="section-blurb">
+    Reddit + YouTube + TikTok food-creator volume around <em>Vital Farms</em>, pasture-raised eggs,
+    and adjacent SKUs. For VITL the highest-signal subs are likely cooking + keto + paleo +
+    EatCheapAndHealthy (premium-vs-value tension).
+  </div>
+</div>
+
+<div class="table-card">
+  <table>
+    <thead><tr>
+      <th>Subreddit</th><th>Topic</th><th>Priority</th>
+      <th class="num">Mentions (90d)</th><th class="num">YoY %</th>
+    </tr></thead>
+    <tbody>
+<tr>
+  <td><strong>r/Cooking</strong></td>
+  <td>general_food</td>
+  <td><span class="badge badge-na">core</span></td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+</tr>
+<tr>
+  <td><strong>r/EatCheapAndHealthy</strong></td>
+  <td>health_value</td>
+  <td><span class="badge badge-na">core</span></td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+</tr>
+<tr>
+  <td><strong>r/PaleoDiet</strong></td>
+  <td>paleo</td>
+  <td><span class="badge badge-na">core</span></td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+</tr>
+<tr>
+  <td><strong>r/keto</strong></td>
+  <td>keto</td>
+  <td><span class="badge badge-na">core</span></td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+</tr>
+<tr>
+  <td><strong>r/nutrition</strong></td>
+  <td>health</td>
+  <td><span class="badge badge-na">core</span></td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+</tr>
+<tr>
+  <td><strong>r/Whole30</strong></td>
+  <td>paleo</td>
+  <td><span class="badge badge-na">growth</span></td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+</tr>
+<tr>
+  <td><strong>r/HealthyFood</strong></td>
+  <td>health</td>
+  <td><span class="badge badge-na">growth</span></td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+</tr>
+<tr>
+  <td><strong>r/mealprep</strong></td>
+  <td>mealprep</td>
+  <td><span class="badge badge-na">growth</span></td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+</tr>
+<tr>
+  <td><strong>r/slowcooking</strong></td>
+  <td>cooking</td>
+  <td><span class="badge badge-na">growth</span></td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+</tr>
+<tr>
+  <td><strong>r/loseit</strong></td>
+  <td>health</td>
+  <td><span class="badge badge-na">growth</span></td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+</tr>
+<tr>
+  <td><strong>r/ZeroWaste</strong></td>
+  <td>values</td>
+  <td><span class="badge badge-na">growth</span></td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+</tr>
+<tr>
+  <td><strong>r/sustainability</strong></td>
+  <td>values</td>
+  <td><span class="badge badge-na">growth</span></td>
+  <td class="num muted-cell">—</td>
+  <td class="num muted-cell">—</td>
+</tr></tbody>
+  </table>
+</div>
+
+<div class="source-caption">To be filled by <code>fetch_reddit_arctic.py</code> (Arctic Shift public API), <code>fetch_youtube.py</code> (YouTube Data API), and a manual/scraped TikTok hashtag snapshot.</div>
+
+  
+<div class="section-header" id="news">
+  <div class="section-num">SECTION 05</div>
+  <div class="section-title">News Coverage</div>
+  <div class="section-blurb">
+    Article cadence + topic mix (<strong>supply / launch / health / financial / culture</strong>) +
+    publisher diversity. Surfaces non-quarterly news flow — especially supply / avian-flu coverage
+    that moves the egg category.
+  </div>
+</div>
+<div class="dual-col">
+  <div class="chart-card">
+    <h3>Article Cadence (24 months)</h3>
+    <div class="chart-wrap"><canvas id="newsCadenceChart"></canvas></div>
+  </div>
+  <div class="chart-card">
+    <h3>Topic Mix</h3>
+    <div class="chart-wrap"><canvas id="newsTopicChart"></canvas></div>
+  </div>
+</div>
+<div class="source-caption">Wired by <code>fetch_google_news.py</code> (public RSS). Topics classified via keyword dictionary in script (<code>TOPIC_KEYWORDS</code>).</div>
+
+  
+<div class="section-header" id="pricing">
+  <div class="section-num">SECTION 06</div>
+  <div class="section-title">Pricing Power Monitor</div>
+  <div class="section-blurb">
+    VITL retail price vs (a) conventional Grade-A eggs (USDA / BLS) and (b) premium peers
+    (Pete &amp; Gerry's, Happy Egg, Handsome Brook, Organic Valley). The signal: does the
+    pasture-raised premium <strong>compress</strong> when conventional egg prices spike, or
+    does VITL hold absolute pricing?
+  </div>
+</div>
+<div class="chart-card">
+  <h3>VITL vs Conventional — Retail Price History (placeholder)</h3>
+  <div class="chart-wrap big"><canvas id="pricingChart"></canvas></div>
+  <div class="source-caption">To be wired from store-locator scrapes (Instacart, Kroger.com), USDA wholesale, and BLS CPI eggs series.</div>
+</div>
+
+  
+<div class="section-header" id="supply">
+  <div class="section-num">SECTION 07</div>
+  <div class="section-title">Supply Risk Monitor — Avian Flu &amp; Egg Wholesale</div>
+  <div class="section-blurb">
+    H5N1 / HPAI news flow + USDA egg wholesale prices + flock data.
+    Pasture-raised flocks have <strong>lower density</strong> than caged operations, so VITL is
+    structurally less exposed than CALM-style conventional producers — but not immune. This panel
+    isolates supply-side risk separately from demand.
+  </div>
+</div>
+<div class="chart-card">
+  <h3>Wholesale Egg Price (USDA, cents/dozen) — placeholder</h3>
+  <div class="chart-wrap big"><canvas id="supplyChart"></canvas></div>
+  <div class="source-caption">To be wired from USDA AMS daily egg market reports + USDA APHIS HPAI confirmed cases.</div>
+</div>
+
+  
+<div class="section-header" id="stock">
+  <div class="section-num">SECTION 08</div>
+  <div class="section-title">Demand vs Stock</div>
+  <div class="section-blurb">
+    VITL close overlaid with composite demand and event markers (earnings, distribution wins,
+    supply shocks, analyst initiations).
+  </div>
+</div>
+<div class="chart-card">
+  <h3>VITL Close + Demand + Events (placeholder)</h3>
+  <div class="chart-wrap big"><canvas id="stockChart"></canvas></div>
+  <div class="source-caption">Wired by <code>fetch_stock_price.py</code> (yfinance) + event log from news classification + manual analyst log.</div>
+</div>
+
+</div>
+
+<footer>
+  Vital Farms (VITL) Demand Dashboard · generated 2026-05-20 10:29
+</footer>
+
+
+<div id="summaryModal" class="modal-backdrop" onclick="if(event.target===this) this.style.display='none'">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title">Vital Farms (VITL) — Demand Signal Scaffold</div>
+        <div class="modal-sub">Generated 2026-05-20 10:29</div>
+      </div>
+      <button class="modal-close" onclick="document.getElementById('summaryModal').style.display='none'">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section-title">What this dashboard shows</div>
+      <ul class="modal-list"><li>SKU universe tracked: <strong>10</strong> products across eggs / butter / ghee / adjacencies.</li><li>Retail targets monitored: <strong>12</strong> banners spanning natural, grocery, mass, club, and ecom.</li><li>Composite demand trajectory (placeholder): <strong>+7.3% YoY</strong> — replace once Reddit/YouTube/News fetchers land.</li><li>Pricing power and Avian Flu / supply-risk panels are wired but awaiting fetchers (USDA wholesale + flock data).</li></ul>
+      <div class="modal-section-title">Pipeline to wire next</div>
+      <ul class="modal-list"><li>Wire <code>fetch_reddit_arctic.py</code> for r/Cooking / r/keto / r/PaleoDiet 3-yr archive.</li><li>Wire <code>fetch_google_news.py</code> for whole-internet news + topic classification.</li><li>Wire <code>fetch_youtube.py</code> for food / health creator coverage.</li><li>Wire <code>fetch_stock_price.py</code> (yfinance VITL) and overlay events.</li><li>Decide approach for Retail % ACV (NielsenIQ / Numerator licensing vs Instacart proxy).</li></ul>
+    </div>
+  </div>
+</div>
+
+
+<script>
+  window.__vitl = {"traj": {"months": ["2024-06", "2024-07", "2024-08", "2024-09", "2024-10", "2024-11", "2024-12", "2025-01", "2025-02", "2025-03", "2025-04", "2025-05", "2025-06", "2025-07", "2025-08", "2025-09", "2025-10", "2025-11", "2025-12", "2026-01", "2026-02", "2026-03", "2026-04", "2026-05"], "eggs": [100.0, 101.8, 103.6, 105.4, 107.2, 109.0, 110.8, 112.6, 114.4, 116.2, 130.0, 131.8, 133.6, 123.4, 125.2, 127.0, 128.8, 130.6, 132.4, 134.2, 136.0, 137.8, 139.6, 141.4], "butter": [40.0, 41.2, 42.4, 43.6, 44.8, 46.0, 47.2, 48.4, 49.6, 50.8, 52.0, 53.2, 54.4, 55.6, 56.8, 58.0, 59.2, 60.4, 61.6, 62.8, 64.0, 65.2, 66.4, 67.6], "ghee": [15.0, 15.6, 16.2, 16.8, 17.4, 18.0, 18.6, 19.2, 19.8, 20.4, 21.0, 21.6, 22.2, 22.8, 23.4, 24.0, 24.6, 25.2, 25.8, 26.4, 27.0, 27.6, 28.2, 28.8]}, "news_cadence": {"months": [], "counts": []}, "news_topics": {}, "pricing": {"vitl_price": null, "conventional_price": null, "peers": [], "history": {"months": [], "vitl": [], "conventional": []}}, "supply": {"wholesale_history": {"months": [], "cents_per_dozen": []}, "flu_events": [], "flock_size": null, "pasture_raised_premium": null}, "stock": {"dates": [], "close": [], "events": []}};
+  document.addEventListener('DOMContentLoaded', () => {
+    const d = window.__vitl;
+
+    // ── Section 1: trajectory ────────────────────────────────────────────────
+    new Chart(document.getElementById('trajChart'), {
+      type: 'line',
+      data: {
+        labels: d.traj.months,
+        datasets: [
+          { label: 'Eggs',   data: d.traj.eggs,   borderColor: '#2E5A3C',
+             backgroundColor: 'rgba(46,90,60,0.08)', borderWidth: 2.2, tension: 0.3, fill: true },
+          { label: 'Butter', data: d.traj.butter, borderColor: '#F4C430',
+             backgroundColor: 'rgba(244,196,48,0.08)', borderWidth: 2, tension: 0.3, fill: false },
+          { label: 'Ghee',   data: d.traj.ghee,   borderColor: '#B5651D',
+             backgroundColor: 'rgba(181,101,29,0.08)', borderWidth: 2, tension: 0.3, fill: false },
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 0, autoSkipPadding: 16 } },
+          y: { grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { font: { size: 10 } } }
+        }
+      }
+    });
+
+    // ── Section 5: news cadence (placeholder empty data — chart skips gracefully) ─
+    const cadence = d.news_cadence || { months: [], counts: [] };
+    new Chart(document.getElementById('newsCadenceChart'), {
+      type: 'bar',
+      data: {
+        labels: cadence.months,
+        datasets: [{ label: 'Articles', data: cadence.counts,
+                      backgroundColor: '#2E5A3C', borderRadius: 3 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+          y: { grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { font: { size: 10 } } }
+        }
+      }
+    });
+
+    // topic mix doughnut
+    const topics = d.news_topics || {};
+    const topicKeys   = Object.keys(topics);
+    const topicVals   = topicKeys.map(k => topics[k]);
+    const topicColors = topicKeys.map(k => ({
+      supply: '#C95D4A', launch: '#2E5A3C', health: '#A8C49B',
+      financial: '#e67e22', culture: '#e84393', other: '#8b8271'
+    })[k] || '#999');
+    new Chart(document.getElementById('newsTopicChart'), {
+      type: 'doughnut',
+      data: { labels: topicKeys, datasets: [{ data: topicVals, backgroundColor: topicColors, borderWidth: 0 }] },
+      options: { responsive: true, maintainAspectRatio: false,
+                  plugins: { legend: { position: 'right', labels: { font: { size: 11 } } } } }
+    });
+
+    // ── Section 6: pricing placeholder ────────────────────────────────────────
+    new Chart(document.getElementById('pricingChart'), {
+      type: 'line',
+      data: { labels: d.pricing.history.months || [],
+               datasets: [
+                 { label: 'VITL (premium)', data: d.pricing.history.vitl || [], borderColor: '#2E5A3C', borderWidth: 2.2, tension: 0.3 },
+                 { label: 'Conventional', data: d.pricing.history.conventional || [], borderColor: '#8b8b78', borderDash: [4,4], borderWidth: 2, tension: 0.3 },
+               ] },
+      options: { responsive: true, maintainAspectRatio: false,
+                  plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } } }
+    });
+
+    // ── Section 7: supply ────────────────────────────────────────────────────
+    new Chart(document.getElementById('supplyChart'), {
+      type: 'line',
+      data: { labels: d.supply.wholesale_history.months || [],
+               datasets: [{ label: 'Wholesale (¢/dz)', data: d.supply.wholesale_history.cents_per_dozen || [],
+                             borderColor: '#C95D4A', backgroundColor: 'rgba(201,93,74,0.08)',
+                             borderWidth: 2.2, tension: 0.3, fill: true }] },
+      options: { responsive: true, maintainAspectRatio: false,
+                  plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } } }
+    });
+
+    // ── Section 8: stock ─────────────────────────────────────────────────────
+    new Chart(document.getElementById('stockChart'), {
+      type: 'line',
+      data: { labels: d.stock.dates || [],
+               datasets: [{ label: 'VITL Close', data: d.stock.close || [],
+                             borderColor: '#2E5A3C', backgroundColor: 'rgba(46,90,60,0.06)',
+                             borderWidth: 2.2, tension: 0.2, fill: true }] },
+      options: { responsive: true, maintainAspectRatio: false,
+                  plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } } }
+    });
+  });
+</script>
+
+</body>
+</html>
