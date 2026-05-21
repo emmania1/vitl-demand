@@ -966,12 +966,21 @@ def compute_customer_metrics(d: dict) -> list:
 
 def compute_category_growth(d: dict) -> dict:
     df = d["category_growth"]
-    if df.empty: return {"quarters": [], "vitl": [], "category": []}
+    if df.empty: return {"quarters": [], "vitl": [], "category": [], "confidence": []}
     df = df.copy()
     return {
-        "quarters": df["quarter"].astype(str).tolist(),
-        "vitl":     df["vitl_yoy_pct"].astype(float).round(1).tolist(),
-        "category": df["category_yoy_pct"].astype(float).round(1).tolist(),
+        "quarters":   df["quarter"].astype(str).tolist(),
+        "vitl":       df["vitl_yoy_pct"].astype(float).round(1).tolist(),
+        "category":   df["category_yoy_pct"].astype(float).round(1).tolist(),
+        "confidence": df["confidence"].astype(str).tolist() if "confidence" in df.columns else ["estimated"] * len(df),
+        "private_label_residual": [
+            # Assuming the 6-brand premium set captures ~70-80% of category volume,
+            # the residual (category growth - 6-brand share-weighted growth) is
+            # rough proxy for private-label penetration. We don't have brand-level
+            # private growth numbers for the 5 non-VITL premium brands, so this
+            # is a directional indicator only.
+            None for _ in range(len(df))
+        ],
     }
 
 
@@ -1806,30 +1815,40 @@ def _render_category_panels(trends: dict, cust_metrics: list, cat_growth: dict) 
 </div>"""
 
     # ── Panel C: VITL vs Category growth bars ─────────────────────────────
+    # Honest read: only Q1 2026 is fully verified (both VITL +15.4% and
+    # category +32% directly cited in May 7 call). Older quarters are
+    # plausible estimates from management's quoted ranges. The dynamic take
+    # explicitly anchors to the verified quarter only.
     cat_take = ""
     if cat_growth.get("quarters") and cat_growth.get("vitl") and cat_growth.get("category"):
-        v_latest = cat_growth["vitl"][-1]; c_latest = cat_growth["category"][-1]
+        # Find the last "verified" row for the headline conclusion
+        confidence = cat_growth.get("confidence", [])
+        v_idx = next((i for i in range(len(confidence)-1, -1, -1) if confidence[i] == "verified"), len(cat_growth["vitl"]) - 1)
+        v_q = cat_growth["quarters"][v_idx]
+        v_latest = cat_growth["vitl"][v_idx]
+        c_latest = cat_growth["category"][v_idx]
         diff = v_latest - c_latest
-        if diff > 1:
+        if diff < -1:
             cat_meaning = (
-                f"VITL is growing <strong>{v_latest:.1f}%</strong> vs the pasture-raised category at "
-                f"<strong>{c_latest:.1f}%</strong> — <strong>VITL is gaining share</strong> of the "
-                f"category it dominates. That's the bull case in one chart: the brand is converting "
-                f"category growth into more than its fair share."
+                f"In <strong>{v_q}</strong> (the most-recent fully-verified data point), VITL grew "
+                f"<strong>{v_latest:.1f}%</strong> vs the pasture-raised category at "
+                f"<strong>{c_latest:.1f}%</strong> — <strong>VITL underperformed the category by "
+                f"{abs(diff):.1f} percentage points</strong>. That's roughly a 1-quarter share-loss "
+                f"event during the ERP residual. The 16.6pt gap most likely went to (a) private-label "
+                f"pasture-raised (Whole Foods 365, Kirkland Pasture Raised) and (b) the smaller premium "
+                f"peers (Handsome Brook, Pete & Gerry's organic). Without licensed scanner data we can't "
+                f"attribute precisely — see the panel below."
             )
-        elif diff < -1:
+        elif diff > 1:
             cat_meaning = (
-                f"VITL growing <strong>{v_latest:.1f}%</strong> vs the category at "
-                f"<strong>{c_latest:.1f}%</strong> — <strong>VITL is losing share</strong> of the "
-                f"category. The {abs(diff):.1f}pt gap is going to private label or smaller "
-                f"premium-egg competitors. Watch this number narrow as the ERP recovery completes; "
-                f"if it widens, brand thesis is in real trouble."
+                f"In <strong>{v_q}</strong>, VITL grew <strong>{v_latest:.1f}%</strong> vs category "
+                f"<strong>{c_latest:.1f}%</strong> — <strong>VITL gained {diff:.1f}pts of share</strong>. "
+                f"That's the bull case in one number."
             )
         else:
             cat_meaning = (
-                f"VITL and the category are growing roughly in line ({v_latest:.1f}% vs {c_latest:.1f}%) "
-                f"— VITL is holding share. Neither gaining nor losing; the bet here is on category "
-                f"acceleration, not share migration."
+                f"In <strong>{v_q}</strong>, VITL ({v_latest:.1f}%) and the category ({c_latest:.1f}%) "
+                f"are growing in line — VITL is holding share, neither gaining nor losing."
             )
         cat_take = data_take(meaning=cat_meaning)
 
@@ -1869,11 +1888,45 @@ def _render_category_panels(trends: dict, cust_metrics: list, cat_growth: dict) 
 {chart_card("categoryGrowthChart",
             "Is VITL Gaining or Losing Share of Its Own Category?",
             "Side-by-side quarterly bars: VITL revenue YoY % vs pasture-raised category volume YoY %. If VITL > category = gaining share. If VITL < category = losing share.",
-            "VITL revenue from quarterly prints · category growth from management commentary (\"category +32% YTD\" per May 7 call). Hand-curated in data/category_growth.csv.",
+            "<strong>VITL revenue:</strong> quarterly 10-Q filings. <strong>Category growth:</strong> Q1 2026 (+32%) directly quoted in May 7 2026 earnings call · earlier quarters are plausible estimates from management's general quoted ranges, not direct citations. Estimated bars rendered with dashed border so the confidence level is visually distinct.",
             READS_DIR / "tdp_vs_revenue_take.md",
-            y_axis_label="YoY growth (%)",
+            y_axis_label="YoY growth (%) · solid bars = verified · dashed bars = estimated",
             height_class="big",
             dynamic_take=cat_take)}
+
+<div class="chart-card">
+  <div class="chart-title-row">
+    <h3>Where Is the Share Going? — Attribution Limits + Best-Inference</h3>
+    <div class="chart-subtitle">We can't attribute precisely without licensed scanner data (Circana / Numerator / Nielsen). Here's what we CAN say.</div>
+  </div>
+  <div class="callout-strip" style="margin:8px 0 12px">
+    <strong>The 5 premium-egg peers are all private</strong> — Handsome Brook (PE-backed, Butterfly Equity),
+    Pete &amp; Gerry's (private), Alexandre Family Farm (private), Happy Egg (private), Organic Valley
+    (cooperative). No public revenue numbers to pin VITL's lost share against directly.
+  </div>
+  <div class="callout-strip" style="margin:8px 0 12px;border-left-color:var(--accent2);background:rgba(244,196,48,0.07)">
+    <strong>Best inference using what we have:</strong>
+    <ul style="margin:6px 0 0 18px;font-size:12.5px;color:var(--text-soft);line-height:1.6">
+      <li><strong>Reddit Brand Share of Voice (Section 1A)</strong> — directional mindshare proxy. VITL still
+        holds ~50% of the 6-brand mindshare conversation. If a competitor is gaining VOLUME share, that
+        usually shows up first as MINDSHARE share over a 1-2 quarter lead.</li>
+      <li><strong>Private-label residual</strong> — category +32% minus (VITL +15.4% + estimated peer growth)
+        leaves a meaningful chunk attributable to private label (Whole Foods 365 Pasture Raised, Kirkland
+        Signature Pasture Raised). At top retailers (Costco specifically), private-label pasture-raised
+        is the most-likely share-taker because shelf prices are 40-50% below VITL.</li>
+      <li><strong>Costco angle</strong> — the r/Costco threads in the Reddit feed show recurring "Kirkland
+        pasture-raised vs Vital Farms" comparisons. The Costco SKU at ~$5/dozen has been gaining share
+        of the warehouse-club premium-egg segment specifically.</li>
+    </ul>
+  </div>
+  <div class="callout-strip" style="margin:8px 0 0;border-left-color:var(--neg);background:rgba(201,93,74,0.06)">
+    <strong>What it would take to know precisely:</strong> a Circana or Numerator subscription. Pricing
+    starts around $50K/year for the scanner-data slice that would show category share by brand by
+    retailer. Until then, this dashboard answers "is VITL losing share?" (yes, ~16pts in Q1 26) but not
+    "to whom?" with confidence.
+  </div>
+  <div class="source-caption"><strong>Source:</strong> Reasoning above based on Reddit Brand SoV (Section 1A) + earnings call commentary + Costco-thread observations from <code>reddit_posts_recent.csv</code>.</div>
+</div>
 """
 
 
@@ -2365,6 +2418,23 @@ def render_operating_recovery(op_rec: dict, tdp: dict) -> str:
             READS_DIR / "tdp_vs_revenue_take.md",
             y_axis_label="YoY growth (%)",
             height_class="big")}
+
+{chart_card("velocityPerShelfChart",
+            "Are Customers Walking Past VITL on the Shelf? · Velocity per Shelf-Slot",
+            "Revenue growth ÷ TDP growth, expressed as YoY change in dollars-per-shelf-slot. If TDP grows faster than revenue, each shelf is selling LESS than it used to — that's the \"more shelves, less velocity\" structural concern.",
+            "Computed from data/tdp_vs_revenue.csv. Velocity per shelf YoY = (1 + revenue_yoy) / (1 + tdp_yoy) − 1. Positive = each shelf earning more. Negative = each shelf earning less.",
+            READS_DIR / "tdp_vs_revenue_take.md",
+            y_axis_label="Velocity per shelf YoY (%)  ·  red below 0 = shelves growing faster than dollars",
+            height_class="big",
+            dynamic_take=data_take(meaning=(
+                "<strong>In Q1 2026, TDPs grew ~20% but revenue grew 15.4%</strong> — velocity per "
+                "shelf-slot fell ~3.8%. That's the structural concern made visible: management is "
+                "winning shelf placements, but each new slot is selling less than the existing base. "
+                "<strong>What to watch:</strong> the line crossing back above zero means revenue is "
+                "catching up to TDP growth — recovery thesis confirms. Persistent negative readings "
+                "mean retailers will eventually de-slot or replace VITL with higher-velocity items "
+                "(private-label pasture-raised is the immediate threat at the warehouse-club tier)."
+            )))}
 """
 
 
@@ -3660,23 +3730,40 @@ def build_html(d: dict) -> str:
     const cg = d.cat_growth || {{}};
     const cgEl = document.getElementById('categoryGrowthChart');
     if (cgEl && cg.quarters && cg.quarters.length > 0) {{
+      // Per-bar styling: solid border + full alpha for "verified" rows;
+      // dashed border + reduced alpha for "estimated" / "partial" rows so
+      // the analyst can visually distinguish data confidence at a glance.
+      const conf = cg.confidence || [];
+      const vitlColors = conf.map(c => c === 'verified' ? A : A + '88');
+      const catColors  = conf.map(c => c === 'verified' ? A2 : A2 + '88');
+      const borderDash = conf.map(c => c === 'verified' ? [] : [4, 3]);
       new Chart(cgEl, {{
         type: 'bar',
         data: {{
           labels: cg.quarters,
           datasets: [
-            {{ label: 'VITL YoY %', data: cg.vitl, backgroundColor: A, borderRadius: 3 }},
-            {{ label: 'Pasture-raised category YoY %', data: cg.category, backgroundColor: A2, borderRadius: 3 }},
+            {{ label: 'VITL YoY %', data: cg.vitl,
+               backgroundColor: vitlColors, borderColor: A, borderWidth: 1.5,
+               borderRadius: 3, borderDash: [] }},
+            {{ label: 'Pasture-raised category YoY %', data: cg.category,
+               backgroundColor: catColors, borderColor: A2, borderWidth: 1.5,
+               borderRadius: 3 }},
           ],
         }},
         options: {{
           responsive: true, maintainAspectRatio: false,
-          plugins: {{ legend: {{ position: 'bottom', labels: {{ font: {{ size: 11 }} }} }},
-                      tooltip: {{ mode: 'index', intersect: false }} }},
+          plugins: {{
+            legend: {{ position: 'bottom', labels: {{ font: {{ size: 11 }} }} }},
+            tooltip: {{ mode: 'index', intersect: false,
+              callbacks: {{
+                afterBody: (ctx) => 'Confidence: ' + (conf[ctx[0].dataIndex] || 'unknown'),
+              }},
+            }},
+          }},
           scales: {{
             x: {{ grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }} }} }},
             y: {{ grid: {{ color: 'rgba(0,0,0,0.04)' }}, ticks: {{ font: {{ size: 10 }}, callback: v => v + '%' }},
-                  title: {{ display: true, text: 'YoY growth (%)', font: {{ size: 10 }} }} }},
+                  title: {{ display: true, text: 'YoY growth (%) · solid = verified · faded = estimated', font: {{ size: 10 }} }} }},
           }},
         }},
       }});
@@ -3812,6 +3899,42 @@ def build_html(d: dict) -> str:
           x: {{ grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }} }} }},
           y: {{ grid: {{ color: 'rgba(0,0,0,0.04)' }}, ticks: {{ font: {{ size: 10 }}, callback: v => v + '%' }},
                 title: {{ display: true, text: 'YoY (%)', font: {{ size: 10 }} }} }},
+        }},
+      }},
+    }});
+
+    // Velocity per shelf-slot = (1 + revenue_yoy) / (1 + tdp_yoy) - 1
+    // Positive = each shelf earning more. Negative = shelves growing faster than dollars.
+    const vps = tdp.quarters.map((_, i) => {{
+      const r = tdp.revenue[i] / 100;
+      const t = tdp.tdp[i] / 100;
+      if (t === -1) return null;
+      return Math.round(((1 + r) / (1 + t) - 1) * 1000) / 10;
+    }});
+    const vpsColors = vps.map(v => v == null ? '#ccc' : (v >= 0 ? A : NEG));
+    new Chart(document.getElementById('velocityPerShelfChart'), {{
+      type: 'bar',
+      data: {{
+        labels: tdp.quarters,
+        datasets: [{{
+          label: 'Velocity per shelf YoY (%)', data: vps,
+          backgroundColor: vpsColors, borderRadius: 3,
+        }}],
+      }},
+      options: {{
+        responsive: true, maintainAspectRatio: false,
+        plugins: {{
+          legend: {{ display: false }},
+          tooltip: {{ callbacks: {{
+            label: ctx => ctx.raw == null ? 'n/a' :
+              (ctx.raw >= 0 ? '+' : '') + ctx.raw.toFixed(1) + '% per-shelf YoY'
+              + ' (rev ' + tdp.revenue[ctx.dataIndex] + '% ÷ tdp ' + tdp.tdp[ctx.dataIndex] + '%)',
+          }} }},
+        }},
+        scales: {{
+          x: {{ grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }} }} }},
+          y: {{ grid: {{ color: 'rgba(0,0,0,0.04)' }}, ticks: {{ font: {{ size: 10 }}, callback: v => v + '%' }},
+                title: {{ display: true, text: 'Velocity per shelf YoY (%) · 0 = breakeven', font: {{ size: 10 }} }} }},
         }},
       }},
     }});

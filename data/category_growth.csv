@@ -1,9 +1,9 @@
-quarter,vitl_yoy_pct,category_yoy_pct,category_source,note
-Q2 2024,30,28,"Mgmt commentary",VITL outpacing
-Q3 2024,28,30,"Mgmt + analyst",In line
-Q4 2024,28,32,"Mgmt commentary",Category accelerating
-Q1 2025,25,30,"Mgmt commentary",Still gaining
-Q2 2025,22,28,"Mgmt commentary",
-Q3 2025,20,28,"Mgmt commentary",
-Q4 2025,16,30,"Mgmt commentary",ERP disruption · VITL lags
-Q1 2026,15.4,32,"May 7 call · category YTD +32%",VITL underperforms category
+quarter,vitl_yoy_pct,category_yoy_pct,confidence,source,note
+Q2 2024,29,25,estimated,"VITL Q2 24 print; category from mgmt commentary range",Estimated · Q1 25 call referenced "category mid-20s growth"
+Q3 2024,29,27,estimated,"VITL Q3 24 print; category estimated",
+Q4 2024,30,28,estimated,"VITL Q4 24 print (FY24 +37% to $616M); category estimated","FY24 revenue $616M = +37% YoY · quarterly trend implied"
+Q1 2025,26,25,partial,"VITL Q1 25 print +26%; category from mgmt range",
+Q2 2025,21,25,partial,"VITL Q2 25 print; category from mgmt range",
+Q3 2025,21,28,partial,"VITL Q3 25 print; category estimated",
+Q4 2025,15,30,partial,"VITL Q4 25 print (FY25 $759.4M = +23%); category estimated","ERP residual hits VITL"
+Q1 2026,15.4,32,verified,"VITL May 7 print +15.4%; category +32% YTD directly quoted in May 7 call","Only fully verified row — both directly cited"
