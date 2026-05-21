@@ -1005,34 +1005,28 @@ def compute_youtube_competitors(d: dict) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 # Dynamic "What this shows" take helper — 2-sentence template with real numbers
 # ─────────────────────────────────────────────────────────────────────────────
-def data_take(*, current: str | None = None, peak: str | None = None,
-              trough: str | None = None, direction: str = "",
-              meaning: str = "") -> str:
-    """Build a 2-sentence 'What this shows' take.
+def data_take(*, meaning: str = "",
+              # Legacy kwargs kept so old callsites don't crash. Ignored
+              # in favor of `meaning` which is now the single-paragraph
+              # analytical read.
+              current: str | None = None, peak: str | None = None,
+              trough: str | None = None, direction: str = "") -> str:
+    """One-paragraph analytical take. Conclusion-first.
 
-    Sentence 1 = literal current state with numbers; sentence 2 = what it
-    means for VITL right now. Pass already-formatted strings (e.g. with
-    units) so the take reads cleanly.
+    Pass a single `meaning` string written as a brief PM read of the chart:
+    "Since X is doing Y, this means Z for VITL." No "current is N · peak is N"
+    boilerplate — the analyst reads numbers off the chart, they want the
+    conclusion. Old callers that pass `current=...` etc. will degrade to
+    rendering nothing (the chart's static /reads/ take still appears).
 
-    Returns HTML that the chart card injects below the source caption.
-    Returns empty string if no inputs given.
+    Returns empty string when `meaning` is empty.
     """
-    bits = []
-    if current:
-        s1 = f"<strong>Current:</strong> {current}"
-        if direction:
-            s1 += f" · <strong>{direction}</strong>"
-        if peak: s1 += f" · peak {peak}"
-        if trough: s1 += f" · trough {trough}"
-        bits.append(s1 + ".")
-    if meaning:
-        bits.append(meaning)
-    if not bits: return ""
+    if not meaning: return ""
     return (
         '<div class="dynamic-take">'
-        '<div class="take-eyebrow take-eyebrow-dyn">WHAT THIS SHOWS</div>'
-        + " ".join(f"<p>{b}</p>" for b in bits)
-        + "</div>"
+        '<div class="take-eyebrow take-eyebrow-dyn">WHAT THIS MEANS FOR VITL</div>'
+        f'<p>{meaning}</p>'
+        '</div>'
     )
 
 
@@ -1403,14 +1397,12 @@ def render_stock_news(events: dict, news: dict, cad_vs_stock: dict) -> str:
             READS_DIR / "reaction_magnitude_take.md",
             y_axis_label="Stock day-reaction (%) · green ring = first positive reaction · gray = flat",
             height_class="big",
-            dynamic_take=data_take(
-                current="-26% reaction on May 7 Q1 print (the hardest of the cycle)",
-                peak="+3.6% on April 2 (only positive)",
-                direction="reset after a 4-month decline trend",
-                meaning=("The pattern to watch: the NEXT negative event coming in smaller than -26% "
-                         "= selling exhausting. Same or larger = trough not yet in. The April 2 +3.6% "
-                         "was the cycle's only positive — it suggested early exhaustion before May 7 "
-                         "reset the count.")))}
+            dynamic_take=data_take(meaning=(
+                "Reactions were shrinking through March-April — selling was exhausting — until "
+                "the <strong>May 7 print reset the count with a -26% drop</strong>. The next "
+                "negative event coming in smaller than that = the trough is in. Larger = bears "
+                "are still finding new reasons to sell."
+            )))}
 
 <div class="chart-card">
   <div class="chart-title-row">
@@ -1516,14 +1508,15 @@ def render_egg_market(egg: dict) -> str:
             READS_DIR / "premium_gap_take.md",
             y_axis_label="Gap (%)",
             height_class="big",
-            dynamic_take=data_take(
-                current=f"{egg['latest_gap']:.0f}% gap (latest)" if egg.get('latest_gap') is not None else "n/a",
-                peak=f"{egg['peak_gap']:.0f}% (Q1 2026 trough conv. prices)" if egg.get('peak_gap') is not None else None,
-                direction=("well above 150-200% historical norm — wide" if egg.get('latest_gap', 0) and egg['latest_gap'] > 250 else "near historical norm"),
-                meaning=("Recovery requires this to fall toward 200%. Either conventional prices "
-                         "rise back toward $2-3/dz OR VITL cuts further — management chose to cut "
-                         "selectively in Q1 (35% → 25% at one top customer → +18% volume in 2 wk). "
-                         "Watch the chart for the inflection.")))}
+            dynamic_take=data_take(meaning=(
+                f"The gap sits at <strong>{egg.get('latest_gap', 0):.0f}%</strong> — well above the "
+                f"150-200% historical norm. <strong>Recovery requires this to close.</strong> "
+                f"Either conventional egg prices rise back toward $2-3/dz (HPAI wave catalyst), "
+                f"or VITL cuts further at the shelf (Q1 example: 35% gap → 25% at one top customer = "
+                f"+18% volume in 2 weeks). Watch the line trending down — that's the macro thesis "
+                f"playing out." if egg.get('latest_gap') is not None else
+                "Gap data not yet loaded."
+            )))}
 
 {chart_card("eggChart3",
             "VITL Stock vs Premium Gap % · 18 months",
@@ -1712,18 +1705,7 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
     brand_stat_row = _build_brand_stat_row(comm)
 
     # Dynamic takes computed from the data
-    # --- Subreddit mentions
-    total_90d = sum((r.get("mentions_90d") or 0) for r in comm.get("sub_rows", []))
-    nonzero_subs = sum(1 for r in comm.get("sub_rows", []) if (r.get("mentions_90d") or 0) > 0)
-    sub_take = data_take(
-        current=f"{total_90d} mentions across {nonzero_subs} active subs in last 90d",
-        direction=("sparse · expected" if total_90d < 30 else "live with real volume"),
-        meaning=("Premium-egg brand mentions are inherently rare in casual food subs — most chatter "
-                 "lives in nutrition / seed-oil / Costco / paleo subs. Signal lives at the brand level "
-                 "(SoV chart below) more than the per-sub aggregate."),
-    )
-
-    # --- Brand SoV totals
+    # --- Brand SoV totals: who's getting talked about + how
     totals = comm.get("totals") or {}
     sov_totals = comm.get("sov_sentiment_totals") or {}
     grand = sum(totals.values()) or 1
@@ -1732,24 +1714,36 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
     vitl_sent = sov_totals.get("Vital Farms", {})
     vitl_pos_pct = round(vitl_sent.get("pos", 0) / max(vitl_sent.get("total", 1), 1) * 100, 0)
     sov_take = data_take(
-        current=f"VITL {vitl_total} mentions ({vitl_pct:.0f}% of 6-brand total), {vitl_pos_pct:.0f}% positive sentiment",
-        direction=("dominant" if vitl_pct >= 50 else "below 50% category share"),
-        meaning=("Dominant share-of-voice with positive sentiment intact is consistent with the "
-                 "bull case (brand moat survived the cycle). Watch monthly for any competitor "
-                 "positive % crossing VITL's — that's the early share-migration tell."),
+        meaning=(
+            f"VITL holds <strong>{vitl_pct:.0f}% of category mindshare</strong> with "
+            f"{vitl_pos_pct:.0f}% positive sentiment — the brand is still the one being named "
+            f"when people talk pasture-raised eggs. Bull case (brand moat survived) is intact "
+            f"as long as no competitor crosses VITL's positive % — that's the share-migration "
+            f"early warning."
+            if vitl_pct >= 50 else
+            f"VITL is below 50% category mindshare ({vitl_pct:.0f}%) — competitors are gaining "
+            f"share of voice. If positive sentiment also slips, that's the first hard data "
+            f"the brand thesis is breaking."
+        ),
     )
 
     # --- Linoleic decay
     lin_reddit = comm.get("linoleic", {}).get("reddit", []) or []
     lin_current = lin_reddit[-1] if lin_reddit else 0
     lin_peak = max(lin_reddit) if lin_reddit else 0
+    lin_decayed = lin_current < lin_peak * 0.5
     lin_take = data_take(
-        current=f"{lin_current} weekly posts (latest)",
-        peak=f"{lin_peak} (Jan 2026 spike)",
-        direction=("decaying" if lin_current < lin_peak * 0.5 else "still elevated"),
-        meaning=("Per management commentary the controversy had negligible purchase impact. The "
-                 "chart's decay back toward baseline supports that — sharper or sustained rebound "
-                 "would warrant rethinking the brand-intactness assumption."),
+        meaning=(
+            f"Seed-oil chatter spiked in January and has since <strong>decayed to {lin_current} "
+            f"weekly posts</strong> (peak was {lin_peak}). That matches management's "
+            f"\"negligible purchase impact\" claim — the noise didn't stick. Watch for a "
+            f"re-spike during the next viral wellness moment; sustained ≥50% of January peak "
+            f"would warrant rethinking brand intactness."
+            if lin_decayed else
+            f"Seed-oil chatter is still elevated at {lin_current} weekly posts (peak {lin_peak}) "
+            f"— the controversy hasn't fully decayed. If it rebuilds rather than fades, the "
+            f"\"negligible impact\" thesis weakens and brand health needs a hard look."
+        ),
     )
 
     # --- Controversy vs stock
@@ -1758,41 +1752,60 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
     if cvs.get("weeks"):
         l = cvs["controversy_idx"][-1] if cvs.get("controversy_idx") else 100
         s = cvs["stock_idx"][-1] if cvs.get("stock_idx") else 100
+        decoupled = abs(l - s) > 30
         cvs_take = data_take(
-            current=f"Controversy index at {l:.0f}, stock at {s:.0f} (both 100 at start)",
-            direction=("decoupled" if abs(l - s) > 30 else "moving together"),
-            meaning=("If the lines diverge sharply, the stock isn't pricing the controversy as "
-                     "structural damage — it's noise. If they track each other tightly, the brand "
-                     "thesis took real hit."),
+            meaning=(
+                f"The lines have <strong>decoupled</strong> (controversy index {l:.0f} vs stock "
+                f"index {s:.0f}) — the stock isn't pricing the seed-oil narrative as structural "
+                f"damage. That's a tactical positive: shorts arguing brand-broken get less and "
+                f"less from this story over time."
+                if decoupled else
+                f"Controversy index ({l:.0f}) and stock index ({s:.0f}) are still moving together "
+                f"— the market is reading the seed-oil narrative as real. The brand thesis took "
+                f"genuine damage that hasn't yet decoupled from price."
+            ),
         )
 
     # --- YouTube VITL
     yt_v_counts = yt_vitl.get("video_count", []) or []
     yt_v_current = yt_v_counts[-1] if yt_v_counts else 0
     yt_v_peak = max(yt_v_counts) if yt_v_counts else 0
-    yt_take = data_take(
-        current=(f"{yt_v_current} videos in latest month" if yt_v_counts
-                 else "no data yet — YOUTUBE_API_KEY missing or quota burned"),
-        peak=(f"{yt_v_peak} (cycle peak)" if yt_v_peak else None),
-        direction=("active" if yt_v_current > 0 else "empty until next quota window"),
-        meaning=("Total YouTube mindshare on VITL — independent of the controversy or recovery "
-                 "narrative. A persistent rise or fall in video count signals the brand is "
-                 "getting more or less air time in long-form creator content."),
-    )
+    if not yt_v_counts:
+        yt_take = data_take(meaning=(
+            "YouTube data is empty for now (quota burned or API key missing). Once populated, "
+            "this becomes the long-form-creator mindshare signal — slower to move than Reddit "
+            "but harder evidence of brand penetration into the wellness / food / investing creator economy."
+        ))
+    else:
+        yt_take = data_take(meaning=(
+            f"VITL got <strong>{yt_v_current} videos</strong> in the latest month (cycle peak {yt_v_peak}). "
+            f"YouTube uploads are the slowest-moving social signal — sustained rise = brand is "
+            f"penetrating creator content; sustained fall = creators are losing interest. Treat "
+            f"this as a 3-month confirming indicator, not a leading one."
+        ))
 
     # --- YouTube competitor multi-line
     yt_brands = yt_comp.get("brands", {}) or {}
     yt_totals = {b: sum(arr) for b, arr in yt_brands.items()}
     yt_total_all = sum(yt_totals.values()) or 0
     yt_vitl_pct = round(yt_totals.get("Vital Farms", 0) / max(yt_total_all, 1) * 100, 0)
-    yt_comp_take = data_take(
-        current=(f"VITL {yt_totals.get('Vital Farms', 0)} videos / {yt_vitl_pct:.0f}% of 6-brand YouTube total"
-                 if yt_total_all > 0 else "no data yet — YouTube competitor fetch pending quota"),
-        direction=("dominant on YouTube" if yt_vitl_pct >= 50 else "below 50% on YouTube"),
-        meaning=("YouTube competitor mindshare is a slower-moving complement to Reddit. Watch for "
-                 "any brand gaining share faster than VITL — that's the leading signal of category "
-                 "narrative migration in long-form content."),
-    )
+    if yt_total_all == 0:
+        yt_comp_take = data_take(meaning=(
+            "Competitor YouTube data pending fresh quota. Once live, this chart shows whether "
+            "VITL or any competitor (Handsome Brook, Alexandre, Pete & Gerry's, Happy Egg, "
+            "Organic Valley) is winning the long-form creator narrative — the leading signal "
+            "of category mindshare migration."
+        ))
+    else:
+        yt_comp_take = data_take(meaning=(
+            f"VITL holds <strong>{yt_vitl_pct:.0f}% of pasture-raised YouTube mindshare</strong> "
+            f"({yt_totals.get('Vital Farms', 0)} of {yt_total_all} videos). "
+            + ("Brand dominance on YouTube intact — the long-form creator economy still names "
+               "VITL first." if yt_vitl_pct >= 50 else
+               "VITL is below 50% on YouTube — a competitor is winning narrative share in "
+               "long-form content. Cross-check with Reddit to see if it's a real migration or "
+               "just one platform's quirk.")
+        ))
 
     reddit_feed_html = _render_reddit_feed(reddit_posts)
     youtube_feed_html = _render_youtube_feed(yt_videos)
@@ -1809,7 +1822,7 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
     return f"""
 <div class="section-header" id="social">
   <div class="section-num">SECTION 01</div>
-  <div class="section-title">Social Signal Overview</div>
+  <div class="section-title">What People Are Saying About VITL</div>
   <div class="section-subtitle">Reddit · YouTube · competitive mindshare — the social widget that anchors the brand-health thesis.</div>
 </div>
 
@@ -1820,25 +1833,13 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
 </div>
 
 <div class="subsection-header">
-  <div class="subsection-eyebrow">1A · REDDIT SIGNAL</div>
-  <div class="subsection-title">Mention volume + sentiment across 15 monitored subs</div>
-</div>
-
-<div class="chart-card">
-  <div class="chart-title-row">
-    <h3>Subreddit Mention Activity · Past 90 Days &amp; YoY</h3>
-    <div class="chart-subtitle">Title + post body + comments via Arctic Shift. Mention base rates are low for niche brand names — that's a feature of casual food forums, not a fetcher bug.</div>
-  </div>
-  <div class="axis-label">Mentions (90d) = absolute count · YoY = vs same 90d window 12 months ago</div>
-  {sub_table}
-  <div class="source-caption"><strong>Source:</strong> Arctic Shift public archive via <code>fetch_reddit_arctic.py</code> (3-stage sweep: title → selftext → comments). Bot accounts filtered; comments &lt;30 chars dropped.</div>
-  {sub_take}
-  {refresh_footer(DATA_DIR / "reddit_mentions_weekly.csv")}
+  <div class="subsection-eyebrow">1A · WHAT REDDIT IS SAYING</div>
+  <div class="subsection-title">Mindshare, sentiment, and the actual conversation</div>
 </div>
 
 {chart_card("brandSovChart",
-            "Brand Share of Voice · Pos / Neu / Neg Stacked · 36 months weekly",
-            "Total volume = mindshare. Pos/neg split = brand health. Tracks whether VITL holds high positive % even as competitors close the volume gap.",
+            "Who Are People Talking About — VITL vs Competitors",
+            "Weekly Reddit mentions across 6 pasture-raised brands, split by sentiment. Volume = mindshare; positive % = brand health.",
             "Arctic Shift title + body + comments sweep per brand. Dictionary-based sentiment classifier on body text (pos AND no neg → positive · neg AND no pos → negative · both/neither → neutral). Brands with 0 hits shown as flat zero-stacks.",
             READS_DIR / "brand_sov_take.md",
             y_axis_label="Weekly mentions stacked by sentiment (positive / neutral / negative)",
@@ -1848,7 +1849,7 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
 
 <div class="chart-card">
   <div class="chart-title-row">
-    <h3>Recent VITL Posts · Most Recent 30 Across Monitored Subs</h3>
+    <h3>What's Being Posted About VITL — Most Recent 30</h3>
     <div class="chart-subtitle">Actual titles + bodies linked back to the source. The signal lives here — what people are <em>saying</em>, not just volume counts.</div>
   </div>
   {reddit_feed_html}
@@ -1857,13 +1858,13 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
 </div>
 
 <div class="subsection-header">
-  <div class="subsection-eyebrow">1B · YOUTUBE SIGNAL</div>
-  <div class="subsection-title">Long-form creator mindshare · monthly</div>
+  <div class="subsection-eyebrow">1B · WHAT YOUTUBE IS SAYING</div>
+  <div class="subsection-title">Creator mindshare across long-form content</div>
 </div>
 
 {chart_card("youtubeVitlChart",
-            "VITL YouTube Mention Volume · Monthly · 36 months",
-            "Total mindshare on YouTube — independent of the controversy or recovery narrative.",
+            "How Much YouTube Is Talking About VITL",
+            "Monthly count of videos mentioning Vital Farms. The slowest-moving social signal — confirms whether creator interest is real and durable.",
             "YouTube Data API v3 via fetch_youtube.py · query \"vital farms\" · monthly video count.",
             READS_DIR / "brand_awareness_take.md",
             y_axis_label="Videos uploaded per month mentioning the brand",
@@ -1871,8 +1872,8 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
             dynamic_take=yt_take)}
 
 {chart_card("youtubeCompetitorsChart",
-            "Brand Mentions vs Competitors on YouTube · 36 months",
-            "Whose brand is gaining or losing on YouTube? Multi-line monthly video counts across all 6 brands.",
+            "Who's Winning on YouTube",
+            "Same 6 brands as the Reddit share-of-voice — but in long-form creator content. Are competitors gaining narrative ground?",
             "YouTube Data API v3 · per-brand monthly query (\"vital farms\", \"handsome brook\", \"alexandre family farm\", \"pete and gerry's\", \"happy egg\", \"organic valley\"). Output: data/youtube_competitors_monthly.csv.",
             READS_DIR / "brand_sov_take.md",
             y_axis_label="Monthly videos per brand",
@@ -1882,7 +1883,7 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
 
 <div class="chart-card">
   <div class="chart-title-row">
-    <h3>Recent VITL Videos · Most Recent 30 Across All Queries</h3>
+    <h3>What's Being Uploaded About VITL — Most Recent 30</h3>
     <div class="chart-subtitle">Actual video titles + channels linked to YouTube. Content matters — a creator review beats a hashtag count for understanding narrative.</div>
   </div>
   {youtube_feed_html}
@@ -1891,13 +1892,13 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
 </div>
 
 <div class="subsection-header">
-  <div class="subsection-eyebrow">1C · CONTROVERSY TRACKER</div>
-  <div class="subsection-title">Linoleic-acid / seed-oil narrative decay</div>
+  <div class="subsection-eyebrow">1C · THE SEED-OIL CONTROVERSY</div>
+  <div class="subsection-title">Did the January 2026 backlash actually stick?</div>
 </div>
 
 {chart_card("linoleicChart",
-            "Linoleic-Acid Controversy Decay · 12 months weekly",
-            "Reddit posts + comments mentioning \"vital farms\" AND (\"linoleic\" OR \"PUFA\" OR \"seed oil\"). YouTube monthly video count overlaid where available.",
+            "Did the Seed-Oil Drama Stick Around?",
+            "Weekly chatter about VITL + linoleic / PUFA / seed-oil keywords. Jan 2026 spike — has it decayed back to baseline?",
             "Reddit from r/seedoilfree + r/Carnivore + r/nutrition (Arctic Shift). YouTube from queries \"vital farms linoleic/PUFA/seed oil\" (data/youtube_linoleic_monthly.csv).",
             READS_DIR / "linoleic_take.md",
             y_axis_label="Reddit = weekly posts (left), YouTube = monthly videos (right, normalized)",
@@ -1905,8 +1906,8 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
             dynamic_take=lin_take)}
 
 {chart_card("controversyVsStockChart",
-            "Controversy Mentions vs VITL Stock · 12 months",
-            "Two lines normalized to 100 at start. Tests whether the linoleic chatter actually moved the stock.",
+            "Did the Controversy Actually Move the Stock?",
+            "Two lines (both indexed to 100). If they track each other, the brand thesis took real damage. If they decouple, it was social-media noise.",
             "Reddit mentions from linoleic_decay_weekly.csv. Stock from yfinance.",
             READS_DIR / "controversy_vs_stock_take.md",
             y_axis_label="Both series indexed to 100 at start",
@@ -1934,12 +1935,13 @@ def render_community(comm: dict) -> str:
             READS_DIR / "brand_awareness_take.md",
             y_axis_label="Aided brand awareness (%)",
             height_class="big",
-            dynamic_take=data_take(
-                current="34% aided awareness (2025)", peak="34% (2025)", trough="25% (2023)",
-                direction="rising · +800bps YoY in 2025",
-                meaning=("Awareness climbed during the same year the share-loss narrative gained "
-                         "traction — direct counter-evidence to brand-damage thesis. FY26 print "
-                         "disclosure is the next data point.")))}
+            dynamic_take=data_take(meaning=(
+                "Aided brand awareness <strong>climbed +800bps to 34% in 2025</strong> — "
+                "the same year the share-loss narrative gained traction. That's direct "
+                "counter-evidence to the brand-damage thesis: customers are aware of VITL "
+                "more than ever, even if they're sometimes priced out at the shelf. FY26 "
+                "print disclosure is the next data point."
+            )))}
 
 <div class="chart-card">
   <div class="chart-title-row">
@@ -1950,11 +1952,11 @@ def render_community(comm: dict) -> str:
     {load_markdown(READS_DIR / "household_penetration.md")['html']}
   </div>
   <div class="source-caption"><strong>Source:</strong> Quarterly call disclosures + investor presentations · updated manually each quarter in <code>reads/household_penetration.md</code>.</div>
-  {data_take(
-      current="14.2M households (+2.0M YoY at year-end 2025)",
-      direction="growing through the disruption",
-      meaning=("Net new buyer acquisition through 2025 despite mid-year ERP onset. Sub-500K "
-               "quarterly growth would be the slow-bleed concern; current pace is well above."))}
+  {data_take(meaning=(
+      "VITL added <strong>2.0M new households in 2025</strong> (to 14.2M) — net acquisition "
+      "kept compounding even as the ERP disruption hit mid-year. That's the funnel still "
+      "working. Watch for sub-500K quarterly growth as the slow-bleed signal."
+  ))}
   {refresh_footer(READS_DIR / "household_penetration.md")}
 </div>
 """
@@ -2056,14 +2058,13 @@ def render_financial(fin: dict, full_cred: dict, cat_burn: dict) -> str:
             READS_DIR / "ebitda_history_take.md",
             y_axis_label="EBITDA margin (% of revenue)",
             height_class="big",
-            dynamic_take=data_take(
-                current="2.7% Q1 2026 EBITDA margin",
-                peak="16.9% (Q1 2025 — only quarter above 14%)",
-                trough="-10% guided Q2 2026E",
-                direction="rebuilding off the trough",
-                meaning=("The bull case requires returning to 10-12% by 2027 — matches the cut FY26 "
-                         "guide ($0-10M EBITDA on $775-800M revenue) and the long-run historical norm. "
-                         "The 15-17% 2030 target is aspirational — they've only hit that range once.")))}
+            dynamic_take=data_take(meaning=(
+                "EBITDA margin collapsed from a <strong>16.9% peak (Q1 25) to 2.7% (Q1 26)</strong> "
+                "and is guided to trough at -10% in Q2 26. The <strong>bull case requires returning "
+                "to 10-12% by 2027</strong> — that matches both management's cut FY26 guide and the "
+                "long-run historical norm. The 15-17% 2030 target is aspirational; they've only hit "
+                "that once. Anchor expectations to the historical band, not the peak."
+            )))}
 
 <div class="chart-card">
   <div class="chart-title-row">
