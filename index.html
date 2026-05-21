@@ -2628,7 +2628,7 @@
 </div>
 
 <footer>
-  Vital Farms (VITL) Recovery Dashboard · generated 2026-05-21 11:18
+  Vital Farms (VITL) Recovery Dashboard · generated 2026-05-21 11:23
 </footer>
 
 
@@ -2637,7 +2637,7 @@
     <div class="modal-header">
       <div>
         <div class="modal-title">Vital Farms (VITL) — Recovery Signal Dashboard</div>
-        <div class="modal-sub">Generated 2026-05-21 11:18</div>
+        <div class="modal-sub">Generated 2026-05-21 11:23</div>
       </div>
       <button class="modal-close" onclick="document.getElementById('summaryModal').style.display='none'">×</button>
     </div>
@@ -3173,8 +3173,15 @@
     const ycEl = document.getElementById('youtubeCompetitorsChart');
     if (ycEl) {
       const ycBrands = yc.brands || {};
-      const anyData = Object.values(ycBrands).some(arr => arr && arr.some(v => v > 0));
-      if (yc.months && yc.months.length > 0 && anyData) {
+      // Only render the chart when the dataset is meaningfully populated.
+      // Threshold: 2+ brands with non-zero data AND total data points across
+      // all brands >= 6 (so we don't render a "blank" chart on a single
+      // brand-month landing through before quota tightened — same principle
+      // as removing the empty subreddit table).
+      const brandsWithData = Object.values(ycBrands).filter(arr => arr && arr.some(v => v > 0));
+      const totalPoints = Object.values(ycBrands).reduce((acc, arr) => acc + (arr || []).filter(v => v > 0).length, 0);
+      const meaningful = yc.months && yc.months.length >= 3 && brandsWithData.length >= 2 && totalPoints >= 6;
+      if (meaningful) {
         const ycDatasets = d.brand_order.filter(b => ycBrands[b]).map(b => ({
           label: b, data: ycBrands[b], borderColor: d.brand_colors[b] || '#999',
           backgroundColor: 'transparent', borderWidth: 1.8, tension: 0.25, pointRadius: 0,
@@ -3193,7 +3200,20 @@
           },
         });
       } else {
-        ycEl.parentElement.innerHTML = '<div class="placeholder">YouTube competitor data not yet fetched · set <code>YOUTUBE_API_KEY</code> in <code>.env</code> and run <code>make refresh-data</code></div>';
+        // Honest empty state — show what's blocking, not a broken-looking chart.
+        const ptsByBrand = d.brand_order
+          .map(b => ({ b, n: (ycBrands[b] || []).filter(v => v > 0).length }))
+          .filter(x => x.n > 0)
+          .map(x => `${x.b} (${x.n})`)
+          .join(' · ') || 'none yet';
+        ycEl.parentElement.innerHTML = (
+          '<div class="placeholder" style="text-align:left;padding:18px 22px">'
+          + '<strong style="color:var(--text)">Not enough competitor data to plot yet.</strong>'
+          + '<div style="margin-top:6px">YouTube\'s 10K-unit daily quota gets eaten by the general + linoleic passes before all 6 competitor brands complete. '
+          + 'Brands with at least one month of data so far: <strong>' + ptsByBrand + '</strong>.</div>'
+          + '<div style="margin-top:6px">Fix: re-run <code>scripts/fetch_youtube.py</code> first-thing after midnight Pacific so the competitor pass gets full quota. Will populate once 2+ brands have 3+ months.</div>'
+          + '</div>'
+        );
       }
     }
 
