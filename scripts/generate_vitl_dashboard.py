@@ -1387,12 +1387,21 @@ def render_setup(setup: dict, runway: dict) -> str:
 </div>
 
 {chart_card("setupOverTimeChart",
-            "Insider Buys · Short Interest · Stock Price · 24 months",
-            "All three normalized to 100 at start. Tests whether the May 13-15 cluster is the first divergence in a regime change.",
-            "Stock = yfinance · short interest = FINRA semi-monthly (seeded historical + yfinance current) · insider buys = SEC Form 4 (seeded May 13-15 cluster, EDGAR parser pending).",
+            "The Convergence Chart — Stock, Shorts, Insiders on One Frame",
+            "All three normalized so the inflection points line up. Is the May 13-15 insider cluster the regime change?",
+            "Stock = yfinance · short interest = FINRA semi-monthly + yfinance current · insider buys = SEC Form 4 (seeded May 13-15 cluster).",
             READS_DIR / "setup_over_time_take.md",
             y_axis_label="Stock = index (left, base=100). Short % and Insider cumulative $K = right axis.",
-            height_class="big")}
+            height_class="big",
+            dynamic_take=data_take(meaning=(
+                "<strong>What it shows.</strong> Three time series on one frame: VITL stock (steady decline from peak), short interest as % of float (steady rise from 4% to 47.5%), cumulative insider buys (flat for 24 months, then a sharp jump on May 13-15 = $321K cluster). The convergence point is the most recent month — a divergence is forming."
+                "<br><br>"
+                "<strong>Why this matters.</strong> The textbook capitulation pattern is: stock down + shorts at extreme + first insider cluster. All three are now true at the same time. <strong>The May 13-15 cluster is the first regime-change candle in 24 months</strong>: 5 directors + the CSO + 2 officers ALL bought personal shares within 3 days post-print. That's the kind of cluster that historically marks bottoms because it's the strongest possible internal signal — directors don't risk personal capital lightly mid-covenant-negotiation."
+                "<br><br>"
+                "<strong>Where this fits.</strong> The bear case requires shorts to be right and insiders to be wrong. The bull case requires the inverse. Quantitatively: 47.5% short of float means there's an enormous coiled-spring trade waiting if recovery signals confirm — shorts have to cover at higher prices, and the buying typically overshoots the fundamental story. <em>If</em> covenants resolve cleanly in August AND Q2 print isn't worse than guided, the short-cover dynamic can drive a 30-50% rally on its own, before any fundamentals improve."
+                "<br><br>"
+                "<strong>Watchpoint.</strong> Two things: (1) the short interest line trending down — that's the actual capitulation event — and (2) any additional insider buys (especially from the CEO, who has NOT yet appeared in the cluster). CEO buying would be the strongest possible follow-through signal."
+            )))}
 """
 
 
@@ -1444,21 +1453,24 @@ def render_stock_news(events: dict, news: dict, cad_vs_stock: dict) -> str:
 <div class="section-header" id="news">
   <div class="section-num">SECTION 03</div>
   <div class="section-title">Stock &amp; News <span class="muted-cell" style="font-size:11.5px;font-weight:500">· {news.get('total', 0)} articles tracked</span></div>
-  <div class="section-subtitle">Reaction magnitude check (are bad-news reactions shrinking?) · hero stock+events chart · topic mix over time · cadence vs stock · article log.</div>
+  <div class="section-subtitle">Is the market reacting LESS to bad news? Has the narrative shifted away from ERP / lawsuits? Does news cadence predict price moves?</div>
 </div>
 
 {chart_card("reactionMagnitudeChart",
-            "Reaction Magnitude on Bad News · 18 months",
-            "Every bad-news event since Q3 25, stock %-reaction on the day. Watch whether reactions shrink across the cycle — selling exhausts before the trough.",
+            "Are Bad-News Reactions Shrinking?",
+            "Every meaningful negative event since Q3 25 with the stock %-reaction on the day. Pattern matters more than any single bar.",
             "Same event log as the chart below (data/event_reactions.csv). Each bar height = stock day-reaction (%). Color = reaction kind (red/yellow/green).",
             READS_DIR / "reaction_magnitude_take.md",
             y_axis_label="Stock day-reaction (%) · green ring = first positive reaction · gray = flat",
             height_class="big",
             dynamic_take=data_take(meaning=(
-                "Reactions were shrinking through March-April — selling was exhausting — until "
-                "the <strong>May 7 print reset the count with a -26% drop</strong>. The next "
-                "negative event coming in smaller than that = the trough is in. Larger = bears "
-                "are still finding new reasons to sell."
+                "<strong>What it shows.</strong> A bar for each negative news event of the cycle: ERP cut (Dec 17 2025, -15.5%), Q4 print miss (Feb 26, -10.8%), MS downgrade (Mar 2, -13%), desk cuts (late March, -5 to -7%), Craig-Hallum cut (Apr 2, <strong>+3.6%</strong>), class-action filings (Apr 15, flat), Q1 print (May 7, <strong>-26%</strong>)."
+                "<br><br>"
+                "<strong>Why this matters.</strong> This is the canonical 'selling exhaustion' test from the technical-analysis playbook. <em>Before the actual price bottom, you see reactions to bad news SHRINK</em> because the leveraged shorts have already covered, the index funds have already sold, and the only marginal seller left has emotional rather than fundamental reasons. The April 2 +3.6% green bar is exactly that pattern — a desk cut a price target and the stock RALLIED. That was the cycle's only positive reaction to bad news and it suggested early exhaustion."
+                "<br><br>"
+                "<strong>Where this fits.</strong> Then May 7 happened. The Q1 print delivered an actual fundamental reset (FY26 guide cut from $900-920M to $775-800M; EBITDA cut from $105-115M to $0-10M). The -26% reaction wasn't sentiment-driven; it was a real downward revision to the future cash-flow picture. <strong>That bar reset the exhaustion test — selling can't be 'exhausted' on news this material.</strong>"
+                "<br><br>"
+                "<strong>Watchpoint.</strong> The next negative event is the critical observation. If it comes in smaller than -26%, the May 7 reset has held and selling really is winding down. If it matches or exceeds, the bears are still finding new reasons to sell and the trough isn't in yet. The Q2 print on August 6 is the most-likely setup."
             )))}
 
 <div class="chart-card">
@@ -1526,7 +1538,7 @@ def render_egg_market(egg: dict) -> str:
 <div class="section-header" id="egg-market">
   <div class="section-num">SECTION 04</div>
   <div class="section-title">The Egg Market — Price Gap Tracker</div>
-  <div class="section-subtitle">The single most analytically unique panel on the dashboard. Four sub-charts split out so each tells one story.</div>
+  <div class="section-subtitle">How wide is the premium gap, and what would close it? The single most analytically unique section — nobody publishes these charts together.</div>
 </div>
 
 <div class="hero-row">
@@ -1551,53 +1563,87 @@ def render_egg_market(egg: dict) -> str:
 </div>
 
 {chart_card("eggChart1",
-            "Conventional Wholesale vs VITL Retail · 5 years weekly",
-            "Two lines, $/dozen. VITL retail line is dashed — flagged as an estimate, not actual scrape data.",
-            "Conventional shell egg = USDA AMS midwest large white (real weekly data, seeded — MARS API fetcher pending). VITL retail = manual step-function estimate from earnings call commentary and management price-cut disclosures · real-time Instacart scrape is a future enhancement.",
+            "Conventional vs VITL · The Two Lines",
+            "$/dozen. Conventional collapsed from $6 to ~$1.60. VITL held $7-9 throughout.",
+            "Conventional = USDA AMS midwest large white shell-egg wholesale (real). VITL retail = step-function estimate from earnings-call commentary; dashed line flags it as an estimate, not a scrape.",
             READS_DIR / "conv_vs_vitl_take.md",
             y_axis_label="Price ($/dozen) · solid = real · dashed = estimate",
-            height_class="big")}
+            height_class="big",
+            dynamic_take=data_take(meaning=(
+                "<strong>What it shows.</strong> The two retail-shelf realities side by side: conventional eggs collapsed from a $6 HPAI-spike peak to ~$1.60 today as flocks rebuilt and supply normalized. VITL retail walked up steadily through the same period ($7.99 → $8.49 → $8.99) and only nudged back to $8.49 in Q1 2026 with management's selective price cuts."
+                "<br><br>"
+                "<strong>Why this matters.</strong> Both lines look reasonable on their own — but the SPREAD between them is what defines VITL's competitive position at the shelf. Conventional has nothing to do with VITL's costs (different supply chain, different birds, different overhead), so when conventional crashes the gap widens automatically — without any change in VITL's actual quality or value proposition. This is what management means when they say the cycle is exogenous."
+                "<br><br>"
+                "<strong>Where this fits.</strong> This chart is the input. The real thesis-driver is the next chart (Gap %), which translates this spread into the share-of-wallet decision a shopper is making at the Costco egg case."
+            )))}
 
 {chart_card("eggChart2",
-            "Premium Gap % · 5 years weekly",
-            "(VITL retail / Conventional wholesale − 1) × 100. The single most important variable in the thesis.",
-            "Derived from the two series above. Shaded band = 150-200% historical norm.",
+            "The Premium Gap",
+            "How much more VITL costs than conventional — the single most important variable in the recovery thesis.",
+            "Derived from chart 1: (VITL retail ÷ conventional wholesale − 1) × 100. Shaded green band = 150-200% historical norm.",
             READS_DIR / "premium_gap_take.md",
             y_axis_label="Gap (%)",
             height_class="big",
             dynamic_take=data_take(meaning=(
-                f"The gap sits at <strong>{egg.get('latest_gap', 0):.0f}%</strong> — well above the "
-                f"150-200% historical norm. <strong>Recovery requires this to close.</strong> "
-                f"Either conventional egg prices rise back toward $2-3/dz (HPAI wave catalyst), "
-                f"or VITL cuts further at the shelf (Q1 example: 35% gap → 25% at one top customer = "
-                f"+18% volume in 2 weeks). Watch the line trending down — that's the macro thesis "
-                f"playing out." if egg.get('latest_gap') is not None else
-                "Gap data not yet loaded."
+                f"<strong>What it shows.</strong> The gap sits at <strong>{egg.get('latest_gap', 0):.0f}%</strong> today (peak this cycle: <strong>{egg.get('peak_gap', 0):.0f}%</strong>). The historical norm is 150-200% — that's the equilibrium where consumers willingly pay the premium-egg upcharge. We're meaningfully above that band right now."
+                f"<br><br>"
+                f"<strong>Why this matters.</strong> Above ~250% the price-conscious incremental buyer starts trading down to private label (Kirkland Pasture Raised at Costco, Whole Foods 365). Existing loyalists keep buying — that's what the +2% buy-rate from management confirms — but the funnel narrows at the top. New-customer trial fell from 55% (2024) to 50% (Q1 26) which is the same story from the demographic angle. <strong>The gap is the single number that decides whether VITL's recovery is fast or slow.</strong>"
+                f"<br><br>"
+                f"<strong>Where this fits.</strong> The bull case explicitly depends on this gap closing. Two paths: (1) conventional rises (fall HPAI wave is the catalyst — see HPAI chart below), or (2) VITL cuts at the shelf. Management already demonstrated path 2 works (the 35% gap → 25% experiment at one top customer drove +18% volume in 2 weeks). They're not pushing it broadly because it would compress GM further during an already-tight cash quarter."
+                f"<br><br>"
+                f"<strong>Watchpoint.</strong> Track the line trending DOWN toward 200%. Every 50pts of compression is meaningful. A sustained move under 250% would be the first hard signal the macro thesis is playing out — that typically lags conventional egg price recovery by 4-8 weeks."
             )))}
 
 {chart_card("eggChart3",
-            "VITL Stock vs Premium Gap % · 18 months",
-            "Two lines, both normalized to 100 at start. Tests whether the stock is fundamentally a macro trade on the gap.",
-            "Stock = yfinance. Gap = derived from USDA AMS + VITL retail series.",
+            "Is the Stock Just a Bet on the Egg Cycle?",
+            "VITL stock vs the premium gap %, normalized. If they move inversely, the stock IS the macro trade.",
+            "Stock = yfinance. Gap = derived from USDA AMS + VITL retail series. Both lines indexed to 100 at start.",
             READS_DIR / "stock_vs_gap_take.md",
             y_axis_label="Indexed to 100 at start of window",
-            height_class="big")}
+            height_class="big",
+            dynamic_take=data_take(meaning=(
+                "<strong>What it shows.</strong> Two lines that should be mirror images if VITL is fundamentally a macro trade on the egg cycle. Gap going up → stock going down (more shoppers trade down → revenue softens → stock falls). Gap going down → stock going up (recovery)."
+                "<br><br>"
+                "<strong>Why this matters.</strong> The Pearson correlation between gap % and VITL stock is currently <strong>-0.35</strong> (Section 11 matrix). That's a real inverse correlation but not overwhelming. <em>That means the stock is partly a macro trade — but other factors (ERP narrative, cash overhang, brand-controversy noise) matter too.</em> If the correlation tightens toward -0.8 over the next 6 months, the stock has been confirmed as a pure macro trade and the recovery becomes mechanical."
+                "<br><br>"
+                "<strong>Where this fits.</strong> This is the chart for testing whether the bull case is really about VITL the company or VITL the proxy for conventional egg prices. If you believe the gap closes, the stock should follow — but you should also see this correlation tighten as confounding factors (ERP coverage, lawsuit noise) decay."
+                "<br><br>"
+                "<strong>Watchpoint.</strong> Cross-reference with the correlation matrix in Section 11. A tightening inverse correlation = thesis confirms. A decoupling = something else (brand damage, structural cost issue) is now the dominant driver and the macro frame is wrong."
+            )))}
 
 {chart_card("eggChart4",
-            "Breaker Market vs Conventional Wholesale · 2 years weekly",
-            "Both in $/dozen. The breaker market is where unsold branded eggs end up — every dime higher is direct margin tailwind for VITL.",
-            "USDA AMS breaker egg market (seeded; same MARS API). Conventional from chart 1.",
+            "The Breaker Market — Where Unsold Eggs Go to Die",
+            "Wholesale price of broken / liquid eggs (USDA AMS). Direct margin variable for VITL.",
+            "USDA AMS breaker egg market (seeded). Conventional from chart 1.",
             READS_DIR / "breaker_take.md",
             y_axis_label="Price ($/dozen)",
-            height_class="big")}
+            height_class="big",
+            dynamic_take=data_take(meaning=(
+                "<strong>What it shows.</strong> Breaker eggs are the eggs VITL CAN'T sell at retail — surplus production that gets cracked and sold as liquid eggs into commercial food manufacturing. The price collapsed from ~$1.00/dz (Q1 2025) to ~$0.10/dz (Q1 2026)."
+                "<br><br>"
+                "<strong>Why this matters.</strong> When the breaker market is at $1, every unsold VITL egg recovers about half its production cost. When it's at $0.10, those eggs are essentially worthless and become pure margin drag. <strong>This is the single line item driving the $32M of 'supply management costs' management called out for FY26.</strong> Every dime higher on this line = direct margin tailwind to VITL."
+                "<br><br>"
+                "<strong>Where this fits.</strong> This is the supply-side mirror of the demand-side gap chart. Gap chart says: demand for VITL retail eggs is soft because conventional is too cheap. Breaker chart says: the eggs that DO get produced but don't sell at retail can't even recover cost in the secondary market. Both problems share the same root cause (conventional egg oversupply), so they resolve together when HPAI hits and supply tightens."
+                "<br><br>"
+                "<strong>Watchpoint.</strong> A move from $0.10 back toward $0.50/dz alone would represent ~$15M annualized margin recovery, with no other improvement needed. This is the most directly-quantifiable macro lever on the dashboard."
+            )))}
 
 {chart_card("hpaiCumulativeChart",
-            "HPAI Cumulative Depopulation · 2022 → today",
-            "Running total of birds depopulated since the 2022 outbreak. Each new wave tightens conventional supply.",
+            "The Bull Catalyst — HPAI Cumulative",
+            "Total US commercial layer birds depopulated since the 2022 outbreak. Each new wave tightens supply.",
             "USDA APHIS confirmed HPAI commercial-layer cases via fetch_hpai.py. Bird counts approximated at avg 0.25M per detected flock; 2022 first-wave baseline pre-loaded from public reports.",
             READS_DIR / "hpai_cumulative_take.md",
             y_axis_label="Cumulative birds depopulated (millions)",
-            height_class="big")}
+            height_class="big",
+            dynamic_take=data_take(meaning=(
+                "<strong>What it shows.</strong> Cumulative US commercial-layer birds depopulated due to HPAI since 2022. ~99M total now. The chart isn't smooth — it has discrete step-ups in 2022-23 (first big wave) and 2024-25 (second wave), then flattens during recovery periods when flocks rebuild."
+                "<br><br>"
+                "<strong>Why this matters.</strong> Every HPAI wave is a forced supply contraction in the conventional egg category. Conventional wholesale prices doubled in 2022-23 and again in 2024-25 because of these waves. Each spike took 6-12 months to fully reverse as new flocks reached laying maturity. <strong>This is the single biggest catalyst on the bull side — and it's literally a biological event no one can predict but everyone has to be positioned for.</strong>"
+                "<br><br>"
+                "<strong>Where this fits.</strong> If HPAI hits again in fall 2026 (migration season is the wild-card window), conventional egg prices spike → premium gap closes mechanically → VITL revenue recovers → breaker market tightens → margin recovers — all without any operational improvement from VITL itself. That's why this chart sits in the egg-market section: it's the externality that resets the whole equation. The bear case has to assume no HPAI wave, which is a real but uncomfortable assumption given the chart's history."
+                "<br><br>"
+                "<strong>Watchpoint.</strong> Weekly HPAI confirmed cases (the inline KPI tile above) for the early-warning signal. Sustained 3+ commercial flock detections per week through October would suggest a new wave is forming. The flatline since Q2 2025 is the worst-case scenario for VITL — peaceful recovery in conventional means the premium gap stays wide."
+            )))}
 
 <div class="chart-card">
   <div class="chart-title-row">
@@ -1952,15 +1998,39 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
     vitl_pos_pct = round(vitl_sent.get("pos", 0) / max(vitl_sent.get("total", 1), 1) * 100, 0)
     sov_take = data_take(
         meaning=(
-            f"VITL holds <strong>{vitl_pct:.0f}% of category mindshare</strong> with "
-            f"{vitl_pos_pct:.0f}% positive sentiment — the brand is still the one being named "
-            f"when people talk pasture-raised eggs. Bull case (brand moat survived) is intact "
-            f"as long as no competitor crosses VITL's positive % — that's the share-migration "
-            f"early warning."
+            f"<strong>What it shows.</strong> Weekly Reddit mentions of 6 pasture-raised brands stacked by sentiment. "
+            f"VITL holds <strong>{vitl_pct:.0f}% of the conversation</strong> across the 36-month window "
+            f"({vitl_total} mentions vs {grand - vitl_total} for the other 5 brands combined), with "
+            f"{vitl_pos_pct:.0f}% of VITL mentions classified as positive sentiment."
+            f"<br><br>"
+            f"<strong>Why this matters.</strong> Share-of-voice is the leading indicator for share-of-wallet by "
+            f"4-12 weeks. When a brand loses mindshare, the volume hit shows up in the next 1-3 quarters. "
+            f"Right now, VITL is still the one being named when people talk pasture-raised eggs — that's "
+            f"meaningful evidence the brand moat survived the ERP disruption and the seed-oil narrative. "
+            f"Even more important: <strong>{vitl_pos_pct:.0f}% positive sentiment</strong> is what tells us "
+            f"the conversation is LOYALTY-driven not COMPLAINT-driven. Negative sentiment percentages would "
+            f"be where a real brand-damage signal would first appear."
+            f"<br><br>"
+            f"<strong>Where this fits.</strong> The bear case requires either (a) a competitor crossing VITL's "
+            f"positive % — meaning consumers are switching their evangelism, not just their purchase — or (b) "
+            f"VITL's positive % collapsing while volume holds. Neither is happening yet. The bull case has direct "
+            f"counter-evidence in the brand-awareness chart (+800bps YoY in 2025 during the alleged share-loss "
+            f"period) plus the household-penetration data (+2M YoY)."
+            f"<br><br>"
+            f"<strong>Watchpoint.</strong> Track the Vital Farms bar shrinking vs any single competitor bar growing, "
+            f"month over month. The early share-migration signal is when one competitor's positive % exceeds VITL's "
+            f"— that means consumers are publicly recommending an alternative."
             if vitl_pct >= 50 else
-            f"VITL is below 50% category mindshare ({vitl_pct:.0f}%) — competitors are gaining "
-            f"share of voice. If positive sentiment also slips, that's the first hard data "
-            f"the brand thesis is breaking."
+            f"<strong>What it shows.</strong> VITL is below 50% category mindshare ({vitl_pct:.0f}%) with "
+            f"{vitl_pos_pct:.0f}% positive sentiment. This is the first hard data point where the conversation has "
+            f"shifted meaningfully away from VITL as the default pasture-raised brand."
+            f"<br><br>"
+            f"<strong>Why this matters.</strong> If VITL is no longer the dominant voice in the category conversation, "
+            f"the premium-pricing moat is weakening — consumers paying 2-3x conventional need a clear reason, and brand "
+            f"recall is half of that reason. Watch sentiment next: if positive % also slips, the brand thesis is breaking."
+            f"<br><br>"
+            f"<strong>Watchpoint.</strong> Which competitor is gaining the share VITL is losing? Cross-reference with the "
+            f"stat-card row above for direction."
         ),
     )
 
@@ -1971,15 +2041,40 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
     lin_decayed = lin_current < lin_peak * 0.5
     lin_take = data_take(
         meaning=(
-            f"Seed-oil chatter spiked in January and has since <strong>decayed to {lin_current} "
-            f"weekly posts</strong> (peak was {lin_peak}). That matches management's "
-            f"\"negligible purchase impact\" claim — the noise didn't stick. Watch for a "
-            f"re-spike during the next viral wellness moment; sustained ≥50% of January peak "
-            f"would warrant rethinking brand intactness."
+            f"<strong>What it shows.</strong> Weekly count of Reddit posts and comments mentioning Vital Farms "
+            f"alongside linoleic-acid / PUFA / seed-oil keywords, across r/seedoilfree, r/Carnivore, and "
+            f"r/nutrition. The chart shows the January 2026 controversy spike (peaking at {lin_peak} weekly mentions) "
+            f"and the subsequent decay to {lin_current} mentions in the most recent week."
+            f"<br><br>"
+            f"<strong>Why this matters.</strong> The seed-oil community on Reddit is one of the most ideologically "
+            f"motivated buyer groups in the premium-egg category — they pay 3-5x for pasture-raised specifically "
+            f"because they're avoiding industrial-feed PUFA pathways. The January 2026 narrative argued that VITL hens "
+            f"are still fed corn/soy (which contain linoleic acid) and therefore can't claim a 'clean' fat profile. "
+            f"If that argument had stuck, VITL would have lost the most-evangelizing slice of its customer base — the people "
+            f"who actually convince friends to switch. <strong>The decay back to baseline is direct evidence the argument "
+            f"didn't capture the broader community.</strong>"
+            f"<br><br>"
+            f"<strong>Where this fits.</strong> Management said on the May 7 call that the controversy had \"negligible "
+            f"purchase impact.\" This chart is the social-side validation of that claim — if true purchase impact existed, "
+            f"we'd expect to see Reddit chatter sustain or grow as detractors found community for their grievance. The "
+            f"decay shape says the opposite: the narrative was a flash, the community moved on. That's <em>consistent</em> "
+            f"with management's read, though it's not direct purchase-data confirmation."
+            f"<br><br>"
+            f"<strong>Watchpoint.</strong> Any sustained re-spike to ≥50% of the January peak would warrant rethinking "
+            f"brand intactness — that would mean the argument found a community and is rebuilding. A clean continued decay "
+            f"to near-zero confirms it was noise. The next viral wellness moment (the kind that re-energizes seed-oil "
+            f"discourse) is the catalyst-of-concern."
             if lin_decayed else
-            f"Seed-oil chatter is still elevated at {lin_current} weekly posts (peak {lin_peak}) "
-            f"— the controversy hasn't fully decayed. If it rebuilds rather than fades, the "
-            f"\"negligible impact\" thesis weakens and brand health needs a hard look."
+            f"<strong>What it shows.</strong> Seed-oil chatter is still elevated at {lin_current} weekly posts (peak "
+            f"{lin_peak}) — the controversy hasn't fully decayed."
+            f"<br><br>"
+            f"<strong>Why this matters.</strong> A sustained-elevation pattern (vs the decay we'd expect from a flash-event) "
+            f"means the argument has found a community and is rebuilding. That's the worst-case scenario for the brand: a "
+            f"persistent narrative tax on premium positioning, applied specifically by the demographic that most actively "
+            f"recommends the brand to others."
+            f"<br><br>"
+            f"<strong>Watchpoint.</strong> Direction trumps level. If the line is still rising 3 months out from the spike, "
+            f"the \"negligible impact\" thesis weakens and the brand-health story needs reassessment."
         ),
     )
 
@@ -1992,14 +2087,35 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
         decoupled = abs(l - s) > 30
         cvs_take = data_take(
             meaning=(
-                f"The lines have <strong>decoupled</strong> (controversy index {l:.0f} vs stock "
-                f"index {s:.0f}) — the stock isn't pricing the seed-oil narrative as structural "
-                f"damage. That's a tactical positive: shorts arguing brand-broken get less and "
-                f"less from this story over time."
+                f"<strong>What it shows.</strong> Two lines normalized to 100 at the start of the 12-month window: "
+                f"the linoleic-controversy weekly mention count and VITL stock price. Currently: controversy index "
+                f"{l:.0f}, stock index {s:.0f} — the lines have <strong>decoupled</strong> meaningfully."
+                f"<br><br>"
+                f"<strong>Why this matters.</strong> This is the test of whether the seed-oil narrative actually moves "
+                f"the stock or is just noise. <strong>The decoupling is a tactical positive.</strong> It means the market — "
+                f"the marginal buyer/seller setting price — looked at the controversy in January, didn't see purchase-impact "
+                f"evidence in the subsequent earnings results, and stopped pricing it as structural damage. "
+                f"Sellside notes from March-April 2026 confirm this: most analysts noted the chatter but didn't downgrade "
+                f"on it. The May 7 print's -26% reaction was about EBITDA guide cuts, not seed-oil."
+                f"<br><br>"
+                f"<strong>Where this fits.</strong> Shorts arguing 'brand permanently damaged by seed-oil narrative' have "
+                f"less and less to point to with this chart. The bear case has to argue brand damage through some OTHER "
+                f"mechanism (gap-driven trade-down to private label is the stronger one). That's a harder argument because "
+                f"the gap is a fixable input (cyclical) while a sticky brand controversy would be structural."
+                f"<br><br>"
+                f"<strong>Watchpoint.</strong> If the controversy line spikes again AND the stock line drops in sympathy "
+                f"within 1-2 weeks, the market is re-coupling — that would mean a new round of brand-damage narrative is "
+                f"getting traction. Sustained decoupling = noise confirmed."
                 if decoupled else
-                f"Controversy index ({l:.0f}) and stock index ({s:.0f}) are still moving together "
-                f"— the market is reading the seed-oil narrative as real. The brand thesis took "
-                f"genuine damage that hasn't yet decoupled from price."
+                f"<strong>What it shows.</strong> Controversy index ({l:.0f}) and stock index ({s:.0f}) are still moving "
+                f"together — the market is reading the seed-oil narrative as real, not noise."
+                f"<br><br>"
+                f"<strong>Why this matters.</strong> When two lines this disparate move in lockstep, the market is "
+                f"pricing the lower-frequency series as the cause of the higher-frequency one. In this case: "
+                f"market reads controversy-chatter rise as structural brand damage and discounts the stock accordingly."
+                f"<br><br>"
+                f"<strong>Watchpoint.</strong> A decoupling event would be the tell. Until then, the brand thesis "
+                f"took genuine damage that hasn't yet been priced as noise."
             ),
         )
 
@@ -2270,18 +2386,20 @@ def render_financial(fin: dict, full_cred: dict, cat_burn: dict) -> str:
 </div>
 
 {chart_card("ebitdaHistoryChart",
-            "EBITDA Margin History · 2020 → 2030 Target",
-            "Peak Q1 25 at 16.9%. 10-14% historical norm band shaded. 2030 target 15-17% (aspirational — only hit it once).",
-            "Annual data 2020-2024 from 10-K filings. Quarterly 2025-2026 from prints. 2026E+ from management guide ranges. 2030T from corporate strategy day.",
+            "EBITDA Margin — Anchoring to the Right Number",
+            "Annual 2020-2024 + quarterly 2025-2026 + projections. Shaded green band = 10-14% historical norm.",
+            "Annual 2020-2024 from 10-K filings. Quarterly 2025-2026 from prints. 2026E+ from management guide ranges. 2030T from corporate strategy day.",
             READS_DIR / "ebitda_history_take.md",
             y_axis_label="EBITDA margin (% of revenue)",
             height_class="big",
             dynamic_take=data_take(meaning=(
-                "EBITDA margin collapsed from a <strong>16.9% peak (Q1 25) to 2.7% (Q1 26)</strong> "
-                "and is guided to trough at -10% in Q2 26. The <strong>bull case requires returning "
-                "to 10-12% by 2027</strong> — that matches both management's cut FY26 guide and the "
-                "long-run historical norm. The 15-17% 2030 target is aspirational; they've only hit "
-                "that once. Anchor expectations to the historical band, not the peak."
+                "<strong>What it shows.</strong> EBITDA margin trajectory from pre-IPO normalized 2020 (10%) through Q1 26 trough (2.7%) and out to the FY 30 target (15-17%). The green band marks the 2020-2024 historical norm of 10-14%. The Q1 25 peak of 16.9% is shaded with the 2030T because it's the same range — and they hit it exactly once."
+                "<br><br>"
+                "<strong>Why this matters.</strong> Anchoring expectations is everything here. <strong>The bull case does NOT require returning to the Q1 25 peak. It requires returning to the 2020-2024 historical NORM of 10-14%.</strong> Even at the bottom of that band (10%), VITL on a normalized $850-900M revenue base generates ~$85-90M EBITDA. The current FY 26 guide of $0-10M is the trough year. The valuation panel's base case ($80M FY 27 EBITDA × 10-12x) is essentially asking: do you believe VITL returns to its own historical norm by 2027? That's a much easier hurdle than asking: do you believe they hit the aspirational 2030 target?"
+                "<br><br>"
+                "<strong>Where this fits.</strong> The trajectory line tells the whole story. 10% → 3% → 5% → 10% → 14% (peak path) → 2.7% (trough) → 11% (FY 27 normalize). The 2030 target is the company's own aspirational case, not what's needed for the bull thesis. Investors who anchor to the 14% peak get disappointed; investors who anchor to the 11% norm get rewarded if the recovery glide-path holds."
+                "<br><br>"
+                "<strong>Watchpoint.</strong> The Q2-Q4 26 progression. Management guided Q2 26 at trough (-10% area on the bar) and recovery to 5%+ by Q4. If Q2 prints better than -5%, the recovery glide is accelerating. If Q4 prints below 0%, the recovery moves into 2027 and the valuation math has to assume a one-year delay."
             )))}
 
 <div class="chart-card">
@@ -2388,52 +2506,88 @@ def render_operating_recovery(op_rec: dict, tdp: dict) -> str:
 </div>
 
 {chart_card("compDifficultyChart",
-            "Quarterly Revenue Growth · Comp Difficulty Color · Q1 25 → Q4 27E",
-            "Each bar color-coded by comp difficulty (red hard / yellow medium / green easy). When does the math turn favorable?",
+            "When Do the Comps Get Easy?",
+            "Quarterly revenue YoY growth, color-coded by comp difficulty (red hard / yellow medium / green easy).",
             "VITL reported quarters + management guided range + analyst estimates for Q2 26 onward.",
             READS_DIR / "comp_difficulty_take.md",
             y_axis_label="YoY revenue growth (%)",
-            height_class="big")}
+            height_class="big",
+            dynamic_take=data_take(meaning=(
+                "<strong>What it shows.</strong> Quarterly revenue YoY for VITL from Q1 2025 actual through Q4 2027 estimate. The bar colors flag what kind of comp the company is running against: red = hard (lapping strong quarters from the unaffected year), yellow = medium, green = easy (lapping the disrupted base)."
+                "<br><br>"
+                "<strong>Why this matters.</strong> Year-over-year math is the single biggest determinant of whether a print 'looks good' or not. <strong>Q4 2026 is the first unambiguously easy comp</strong> — it laps the ERP-disrupted Q4 2025 base where revenue grew only 15-16% vs a normalized 25-30% trend. Even if VITL just returns to normal operating cadence, Q4 26 should print +20%+ YoY. The first half of 2027 lapses the price-gap crisis quarters which are even softer bases."
+                "<br><br>"
+                "<strong>Where this fits.</strong> The market typically prices recovery 1-2 quarters AHEAD of when the easy comps actually print. That puts the inflection window at <strong>August-October 2026</strong> — Q2 print in early August is when the market starts modeling Q3/Q4 expectations, and Q3 print in early November is when Q4-and-beyond becomes the dominant frame. <em>This is the calendar reason the August 6 print matters so much.</em>"
+                "<br><br>"
+                "<strong>Watchpoint.</strong> Q2 26 (Aug 6) is still a hard comp (lapping a normal +21% Q2 25), so the bar to beat is just \"management's guided low-single digits.\" Q3 is medium. Q4 is when comp difficulty inflects. Markets typically lead reality by 1-2 quarters."
+            )))}
 
 {chart_card("gmTrajectoryChart",
-            "Gross Margin Trajectory · Quarterly · Actual + Guided",
-            "GM inflects BEFORE revenue. Trough Q1 26 at 28.3%, recovery guided to 30%+ Q4 26, 33-35% FY27.",
+            "Gross Margin — Why It Recovers Before Revenue",
+            "Quarterly GM from Q1 25 actual through FY 27E guided. Peak was 16.9% (Q1 25). Trough was 2.7% (Q1 26).",
             "Reported quarters from prints + management guided range + FY27 directional band.",
             READS_DIR / "gross_margin_take.md",
             y_axis_label="Gross margin (%)",
-            height_class="big")}
+            height_class="big",
+            dynamic_take=data_take(meaning=(
+                "<strong>What it shows.</strong> Gross margin (% of revenue) over the cycle. Peak Q1 25 at 38.5%. Trough Q1 26 at 28.3%. Management guides Q2 26 trough deeper at ~27% then recovery to 30%+ by Q4 26 and 33-35% in FY 27."
+                "<br><br>"
+                "<strong>Why this matters.</strong> <strong>Margin always recovers before revenue</strong> in cycles like this — it's a math relationship. The supply-management costs that crushed Q1 26 GM ($32M of unsold-egg cost over the year) roll off as the breaker market recovers (see Section 04). Egg-shell-sales mix improves as demand returns at the retail tier. ERP transitional costs are one-time and disappear. Revenue, by contrast, depends on the gap closing and on shelf-velocity catching up to TDP growth — both slower processes. So Q3 and Q4 26 should show GM inflecting back toward 30%+ even as revenue YoY is still middling."
+                "<br><br>"
+                "<strong>Where this fits.</strong> The bull-case math: a return to 32% GM on a normalized FY 27 revenue base of $850-900M generates $270-290M of gross profit. Subtract ~$200M of normalized opex = $70-90M EBITDA. At 10-12x that's a $700M-$1.1B equity value vs current ~$340M market cap. <em>The GM recovery is the load-bearing assumption</em> in that math — without it, the FY 27 EBITDA target the valuation hangs on doesn't materialize."
+                "<br><br>"
+                "<strong>Watchpoint.</strong> Q2 26 print GM. If it comes in better than the guided ~27%, recovery is starting one quarter earlier than the May 7 frame suggested. If it comes in below 27%, supply-management costs are running higher than guided and the recovery glide-path moves out a quarter."
+            )))}
 
 {chart_card("twoYrStackChart",
-            "2-Year Stacked Revenue Growth · Quarterly",
-            "Normalizes for base effects. The first quarter where the stack STOPS declining is the stabilization signal.",
+            "The Stabilization Test — 2-Year Stacks",
+            "Single-period YoY% can lie during base-effect distortion. Stacks tell the truth.",
             "Computed from quarterly revenue YoY: current period YoY + prior-year YoY for the same quarter.",
             READS_DIR / "two_year_stack_take.md",
             y_axis_label="2-yr stacked YoY growth (%)",
-            height_class="big")}
+            height_class="big",
+            dynamic_take=data_take(meaning=(
+                "<strong>What it shows.</strong> 2-year stacked revenue growth (current quarter YoY% + same quarter's YoY% from the year prior). Stacks peaked at 55% in Q1 25, then declined steadily through cycle disruption to a projected ~25% in Q3 26."
+                "<br><br>"
+                "<strong>Why this matters.</strong> Single-quarter YoY can lie. Imagine Q4 26 prints +25% YoY — looks great until you remember Q4 25 was disrupted (only +16% off an already-cycle-weakened base). The +25% is real but the comp is artificial. The 2-year stack strips out that base-effect distortion by adding both years' growth together. <strong>The first quarter where the stack STOPS declining is the true stabilization signal</strong>, not the YoY chart that gets distorted by disrupted base years."
+                "<br><br>"
+                "<strong>Where this fits.</strong> Per the projection, the stack stops declining around Q4 26 / Q1 27 (mid 20s and starts rising). That aligns with the comp-difficulty chart's prediction that the inflection lands in late 2026. <em>If the stack starts rising as early as Q3 26, recovery is ahead of schedule.</em> If it continues falling through Q1 27, recovery has slipped a quarter or two — which would meaningfully affect the implied 2027 EBITDA math feeding the valuation scenarios."
+                "<br><br>"
+                "<strong>Watchpoint.</strong> Watch Q2-Q3 26 stacks. The first quarter where the stack number is HIGHER than the prior quarter's stack = the real stabilization moment. That's the leading signal that's harder to fake or distort than headline YoY."
+            )))}
 
 {chart_card("tdpVsRevenueChart",
-            "TDP Growth YoY vs Revenue Growth YoY · 8 quarters",
-            "Side-by-side bars. Tests whether distribution gains are translating into revenue.",
+            "TDPs vs Revenue — Is Distribution Translating Into Sales?",
+            "Side-by-side quarterly bars: shelf placement growth vs revenue growth.",
             "TDP (Total Distribution Points — shelf SKU placements) from management commentary + sell-side. Revenue YoY from quarterly prints.",
             READS_DIR / "tdp_vs_revenue_take.md",
             y_axis_label="YoY growth (%)",
-            height_class="big")}
+            height_class="big",
+            dynamic_take=data_take(meaning=(
+                "<strong>What it shows.</strong> Two bars per quarter: blue = TDP (shelf-placement) growth YoY; gold = revenue growth YoY. When TDPs grow faster than revenue, it means VITL is winning new placements but not converting them into proportional dollar sales. Looking at the trajectory: TDPs and revenue moved in tight lockstep through 2024 (both ~28-30%), then started diverging in 2025 as the ERP disruption hit. Q1 2026 shows the widest gap so far: TDPs +20% but revenue only +15.4%."
+                "<br><br>"
+                "<strong>Why this matters.</strong> Management talks about TDP growth as a positive recovery indicator on every call. Looked at alone, it IS positive — distribution gains compound. But looked at next to revenue, the TDP outperformance becomes a YELLOW flag. <strong>It means VITL is being added to new shelves at retailers where existing pasture-raised SKUs don't sell as well as the established Whole Foods / Sprouts / Costco footprint.</strong> Costco's regional rollout, mass-channel test placements, and conventional-grocery experiments all add TDPs but at much lower velocity per slot. The velocity-per-shelf chart below shows the mechanical consequence (-3.8% in Q1 26)."
+                "<br><br>"
+                "<strong>Where this fits.</strong> Bulls argue: TDPs ahead of revenue is a normal expansion pattern — placements come first, velocity follows. Bears argue: this is a structural problem where the brand has saturated its high-velocity natural-grocery footprint and incremental shelves are diluting. <em>The next 2-3 quarters resolve the debate.</em> If revenue catches up by Q4 26 (velocity-per-shelf returns to neutral), bulls win. If TDPs keep outpacing revenue through Q1 27, structural saturation is real."
+                "<br><br>"
+                "<strong>Watchpoint.</strong> The convergence point. Watch each quarter for the spread (TDP YoY minus Revenue YoY). Spread shrinks = recovery confirmed. Spread widens = saturation thesis gains evidence."
+            )))}
 
 {chart_card("velocityPerShelfChart",
-            "Are Customers Walking Past VITL on the Shelf? · Velocity per Shelf-Slot",
-            "Revenue growth ÷ TDP growth, expressed as YoY change in dollars-per-shelf-slot. If TDP grows faster than revenue, each shelf is selling LESS than it used to — that's the \"more shelves, less velocity\" structural concern.",
-            "Computed from data/tdp_vs_revenue.csv. Velocity per shelf YoY = (1 + revenue_yoy) / (1 + tdp_yoy) − 1. Positive = each shelf earning more. Negative = each shelf earning less.",
+            "Are Customers Walking Past VITL on the Shelf?",
+            "Revenue growth ÷ TDP growth. The structural test of whether new shelves are SELLING — or just sitting.",
+            "Computed from data/tdp_vs_revenue.csv. Velocity per shelf YoY = (1 + revenue_yoy) / (1 + tdp_yoy) − 1. Positive (green) = each shelf earning more · negative (red) = shelves growing faster than dollars.",
             READS_DIR / "tdp_vs_revenue_take.md",
             y_axis_label="Velocity per shelf YoY (%)  ·  red below 0 = shelves growing faster than dollars",
             height_class="big",
             dynamic_take=data_take(meaning=(
-                "<strong>In Q1 2026, TDPs grew ~20% but revenue grew 15.4%</strong> — velocity per "
-                "shelf-slot fell ~3.8%. That's the structural concern made visible: management is "
-                "winning shelf placements, but each new slot is selling less than the existing base. "
-                "<strong>What to watch:</strong> the line crossing back above zero means revenue is "
-                "catching up to TDP growth — recovery thesis confirms. Persistent negative readings "
-                "mean retailers will eventually de-slot or replace VITL with higher-velocity items "
-                "(private-label pasture-raised is the immediate threat at the warehouse-club tier)."
+                "<strong>What it shows.</strong> The ratio of revenue growth to TDP (Total Distribution Points = shelf SKU placements) growth, expressed as YoY change in dollars-per-shelf-slot. When the bar is positive, each shelf is selling MORE than the same shelf did a year ago — the brand is densifying. When the bar is negative, shelves are growing faster than dollars — VITL is winning placements but each placement underperforms the existing base."
+                "<br><br>"
+                "<strong>Why this matters.</strong> Q1 2026 shows TDPs +20% YoY against revenue +15.4% — <strong>velocity per shelf-slot fell ~3.8%</strong>. That's the structural concern made visible. Management's TDP-growth talking point sounds good in isolation (\"distribution +20%\" is a great metric in a vacuum), but when revenue lags it means retailers see less dollar throughput per slot than they expected when they added the SKU. <strong>Retailers track this metric directly</strong> — they call it dollar velocity or $$/store/week — and they de-slot brands that consistently underperform category benchmarks. Whole Foods, Costco, and Sprouts buyers all run quarterly slot-productivity reviews."
+                "<br><br>"
+                "<strong>Where this fits.</strong> This connects the two pieces of the share-loss puzzle. The Category Growth chart (Section 01B) shows VITL underperforming category by ~16pts — that's the revenue side. This chart shows VITL also LOSING velocity per slot — that's why the category is gaining without VITL. Combined: VITL is expanding shelf presence into channels and stores where each new slot doesn't earn its keep, while private-label pasture-raised (Kirkland, Whole Foods 365) takes share at the slots that DO sell. <em>Both charts are showing the same problem from different angles.</em>"
+                "<br><br>"
+                "<strong>Watchpoint.</strong> The line crossing back above zero is the structural recovery signal — that means revenue is catching up to TDP growth and each shelf is back to net-positive earnings. Persistent negative readings mean retailers will eventually de-slot or replace VITL with higher-velocity items. The Q2-Q3 26 prints are where this resolves — if velocity-per-shelf turns positive, the recovery thesis is intact. If it stays negative through Q3, expect first de-slotting headlines by Q4."
             )))}
 """
 
