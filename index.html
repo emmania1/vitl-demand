@@ -872,21 +872,6 @@
 </div>
 
 
-
-<div class="chart-card">
-  <div class="chart-title-row">
-    <h3>Who's Winning on YouTube</h3>
-    <div class="chart-subtitle">Same 6 brands as the Reddit share-of-voice — but in long-form creator content. Are competitors gaining narrative ground?</div>
-  </div>
-  <div class="axis-label">Y-axis: Monthly videos per brand</div>
-  <div class="chart-wrap big"><canvas id="youtubeCompetitorsChart"></canvas></div>
-  <div class="source-caption"><strong>Source:</strong> YouTube Data API v3 · per-brand monthly query ("vital farms", "handsome brook", "alexandre family farm", "pete and gerry's", "happy egg", "organic valley"). Output: data/youtube_competitors_monthly.csv.</div>
-  <div class="dynamic-take"><div class="take-eyebrow take-eyebrow-dyn">WHAT THIS MEANS FOR VITL</div><p>VITL holds <strong>100% of pasture-raised YouTube mindshare</strong> (5 of 5 videos). Brand dominance on YouTube intact — the long-form creator economy still names VITL first.</p></div>
-  <div class="chart-take"><div class="take-eyebrow">WHAT TO WATCH <span class="datestamp">· 2026-05-20</span></div><p>Tests whether competitors (Handsome Brook, Alexandre, Pete & Gerry's, Happy Egg, Organic Valley) gained consumer mindshare during the ERP shelf-gap and the January controversy. If Vital Farms's share holds above ~50% of weekly mentions across the pasture-raised set, the brand premium is intact in conversation — the customers who care about pasture-raised are still naming Vital Farms first.</p></div>
-</div>
-
-
-
 <div class="chart-card">
   <div class="chart-title-row">
     <h3>What's Being Uploaded About VITL — Most Recent 30</h3>
@@ -2628,7 +2613,7 @@
 </div>
 
 <footer>
-  Vital Farms (VITL) Recovery Dashboard · generated 2026-05-21 11:23
+  Vital Farms (VITL) Recovery Dashboard · generated 2026-05-21 11:26
 </footer>
 
 
@@ -2637,7 +2622,7 @@
     <div class="modal-header">
       <div>
         <div class="modal-title">Vital Farms (VITL) — Recovery Signal Dashboard</div>
-        <div class="modal-sub">Generated 2026-05-21 11:23</div>
+        <div class="modal-sub">Generated 2026-05-21 11:26</div>
       </div>
       <button class="modal-close" onclick="document.getElementById('summaryModal').style.display='none'">×</button>
     </div>
@@ -3169,53 +3154,8 @@
       }
     }
 
-    const yc = window.__vitl.yt_comp || {};
-    const ycEl = document.getElementById('youtubeCompetitorsChart');
-    if (ycEl) {
-      const ycBrands = yc.brands || {};
-      // Only render the chart when the dataset is meaningfully populated.
-      // Threshold: 2+ brands with non-zero data AND total data points across
-      // all brands >= 6 (so we don't render a "blank" chart on a single
-      // brand-month landing through before quota tightened — same principle
-      // as removing the empty subreddit table).
-      const brandsWithData = Object.values(ycBrands).filter(arr => arr && arr.some(v => v > 0));
-      const totalPoints = Object.values(ycBrands).reduce((acc, arr) => acc + (arr || []).filter(v => v > 0).length, 0);
-      const meaningful = yc.months && yc.months.length >= 3 && brandsWithData.length >= 2 && totalPoints >= 6;
-      if (meaningful) {
-        const ycDatasets = d.brand_order.filter(b => ycBrands[b]).map(b => ({
-          label: b, data: ycBrands[b], borderColor: d.brand_colors[b] || '#999',
-          backgroundColor: 'transparent', borderWidth: 1.8, tension: 0.25, pointRadius: 0,
-        }));
-        new Chart(ycEl, {
-          type: 'line',
-          data: { labels: yc.months, datasets: ycDatasets },
-          options: {
-            responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } }, tooltip: { mode: 'index', intersect: false } },
-            scales: {
-              x: { grid: { display: false }, ticks: { font: { size: 10 }, maxTicksLimit: 10, autoSkip: true } },
-              y: { grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { font: { size: 10 } },
-                    title: { display: true, text: 'Monthly videos per brand', font: { size: 10 } } },
-            },
-          },
-        });
-      } else {
-        // Honest empty state — show what's blocking, not a broken-looking chart.
-        const ptsByBrand = d.brand_order
-          .map(b => ({ b, n: (ycBrands[b] || []).filter(v => v > 0).length }))
-          .filter(x => x.n > 0)
-          .map(x => `${x.b} (${x.n})`)
-          .join(' · ') || 'none yet';
-        ycEl.parentElement.innerHTML = (
-          '<div class="placeholder" style="text-align:left;padding:18px 22px">'
-          + '<strong style="color:var(--text)">Not enough competitor data to plot yet.</strong>'
-          + '<div style="margin-top:6px">YouTube\'s 10K-unit daily quota gets eaten by the general + linoleic passes before all 6 competitor brands complete. '
-          + 'Brands with at least one month of data so far: <strong>' + ptsByBrand + '</strong>.</div>'
-          + '<div style="margin-top:6px">Fix: re-run <code>scripts/fetch_youtube.py</code> first-thing after midnight Pacific so the competitor pass gets full quota. Will populate once 2+ brands have 3+ months.</div>'
-          + '</div>'
-        );
-      }
-    }
+    // YouTube competitor chart removed in pass 11 — see render_social_overview
+    // note. Brand-vs-brand comparison lives in the Reddit Brand SoV chart.
 
     // ── Section 01B — Category Demand (Trends + Category Growth) ─────────
     const tr = d.trends || {};

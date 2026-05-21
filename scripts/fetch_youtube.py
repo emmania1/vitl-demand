@@ -232,28 +232,27 @@ def main() -> int:
         lin_videos["pass"] = "linoleic"
         all_video_details.append(lin_videos)
 
-    # Competitor brands — 36mo window, separate output
-    print(f"\n  ── competitor pass: {len(COMPETITOR_BRANDS)} brands × 36mo ──")
-    comp_df = _run_query_set(yt, COMPETITOR_BRANDS,
-                             end - timedelta(days=365*3), end,
-                             max_per_month=20, label="competitor")
-    if not _last_video_detail.empty:
-        comp_videos = _last_video_detail.copy()
-        comp_videos["pass"] = "competitor"
-        all_video_details.append(comp_videos)
-    if not comp_df.empty:
-        # Tag each row with the brand it came from (use query as brand label)
-        comp_df = comp_df.rename(columns={"query": "brand"})
-        comp_df = (comp_df.groupby(["month", "brand"])
-                   .agg(video_count=("video_count","sum"), view_sum=("view_sum","sum"))
-                   .reset_index().sort_values(["month","brand"]).reset_index(drop=True))
-        comp_df.to_csv(COMPETITORS_OUT_CSV, index=False)
-        print(f"  ✓ wrote {COMPETITORS_OUT_CSV.name}  rows={len(comp_df)}  "
-              f"unique_brands={comp_df['brand'].nunique()}")
-    else:
-        print(f"  · {COMPETITORS_OUT_CSV.name} preserved (competitor fetch empty; likely quota)")
-        if not COMPETITORS_OUT_CSV.exists():
-            pd.DataFrame(columns=["month","brand","video_count","view_sum"]).to_csv(COMPETITORS_OUT_CSV, index=False)
+    # ── Competitor brands pass: DISABLED ──────────────────────────────────
+    # Removed in pass 11. Two reasons:
+    #   1) Content base rate too thin — creators don't make brand-vs-brand
+    #      videos about premium eggs at any scale. The 5 non-VITL brands
+    #      (Handsome Brook / Alexandre / Pete & Gerry's / Happy Egg / Organic
+    #      Valley) have near-zero dedicated YouTube content. Even with full
+    #      quota the chart would be mostly flatlines with VITL holding 80%+.
+    #   2) Quota math: 6 brands × 36 months × 100 units/search.list = ~21,600
+    #      units vs 10K daily cap. Always starved before completing → produces
+    #      misleading partial data.
+    # Brand-vs-brand comparison lives in the Reddit Brand SoV chart (Section
+    # 1A), which has real volume across investing + cooking subs and isn't
+    # quota-bound. To revive: uncomment below and request elevated quota
+    # tier from Google Cloud Console.
+    #
+    # print(f"\n  ── competitor pass: {len(COMPETITOR_BRANDS)} brands × 36mo ──")
+    # comp_df = _run_query_set(yt, COMPETITOR_BRANDS,
+    #                          end - timedelta(days=365*3), end,
+    #                          max_per_month=20, label="competitor")
+    # ... (full block preserved in git history at commit ecc2a26)
+    print(f"\n  · competitor pass: SKIPPED (content base rate too thin · see commit msg)")
 
     # ── Recent-videos feed (titles + channels + URLs) ────────────────────
     # Concatenate all per-video metadata across passes, dedupe by video_id,

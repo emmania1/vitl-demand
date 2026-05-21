@@ -1969,35 +1969,23 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
         ))
 
     # --- YouTube competitor multi-line
-    yt_brands = yt_comp.get("brands", {}) or {}
-    yt_totals = {b: sum(arr) for b, arr in yt_brands.items()}
-    yt_total_all = sum(yt_totals.values()) or 0
-    yt_vitl_pct = round(yt_totals.get("Vital Farms", 0) / max(yt_total_all, 1) * 100, 0)
-    if yt_total_all == 0:
-        yt_comp_take = data_take(meaning=(
-            "Competitor YouTube data pending fresh quota. Once live, this chart shows whether "
-            "VITL or any competitor (Handsome Brook, Alexandre, Pete & Gerry's, Happy Egg, "
-            "Organic Valley) is winning the long-form creator narrative — the leading signal "
-            "of category mindshare migration."
-        ))
-    else:
-        yt_comp_take = data_take(meaning=(
-            f"VITL holds <strong>{yt_vitl_pct:.0f}% of pasture-raised YouTube mindshare</strong> "
-            f"({yt_totals.get('Vital Farms', 0)} of {yt_total_all} videos). "
-            + ("Brand dominance on YouTube intact — the long-form creator economy still names "
-               "VITL first." if yt_vitl_pct >= 50 else
-               "VITL is below 50% on YouTube — a competitor is winning narrative share in "
-               "long-form content. Cross-check with Reddit to see if it's a real migration or "
-               "just one platform's quirk.")
-        ))
+    # NOTE: youtube competitor chart was removed in pass 11. Reason: creators
+    # don't make brand-vs-brand videos about premium eggs at any scale — the
+    # 5 non-VITL brands have near-zero dedicated content. Brand-vs-brand
+    # comparison lives in the Reddit Brand SoV chart (Section 1A), which has
+    # real volume across investing + cooking subs.
 
     reddit_feed_html = _render_reddit_feed(reddit_posts)
     youtube_feed_html = _render_youtube_feed(yt_videos)
     category_section_html = _render_category_panels(trends, cust_metrics, cat_growth)
 
-    yt_competitor_present = any(any(v) for v in yt_brands.values())
+    # Kept for potential future revival when YouTube quota becomes a non-issue
+    # (apply for higher quota tier from Google) and creators start making more
+    # brand-comparison content. Today the data is unreliable AND the underlying
+    # content base rate is too thin to plot.
+    yt_competitor_present = False  # explicitly hide
     yt_competitor_empty_card = ""
-    if not yt_competitor_present:
+    if False:  # disabled — content base rate too thin
         yt_competitor_empty_card = (
             '<div class="placeholder" style="margin-top:6px">'
             'YouTube competitor data pending. Re-run <code>fetch_youtube.py</code> when '
@@ -2057,16 +2045,6 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
             y_axis_label="Videos uploaded per month mentioning the brand",
             height_class="big",
             dynamic_take=yt_take)}
-
-{chart_card("youtubeCompetitorsChart",
-            "Who's Winning on YouTube",
-            "Same 6 brands as the Reddit share-of-voice — but in long-form creator content. Are competitors gaining narrative ground?",
-            "YouTube Data API v3 · per-brand monthly query (\"vital farms\", \"handsome brook\", \"alexandre family farm\", \"pete and gerry's\", \"happy egg\", \"organic valley\"). Output: data/youtube_competitors_monthly.csv.",
-            READS_DIR / "brand_sov_take.md",
-            y_axis_label="Monthly videos per brand",
-            height_class="big",
-            dynamic_take=yt_comp_take)}
-{yt_competitor_empty_card}
 
 <div class="chart-card">
   <div class="chart-title-row">
@@ -3641,53 +3619,8 @@ def build_html(d: dict) -> str:
       }}
     }}
 
-    const yc = window.__vitl.yt_comp || {{}};
-    const ycEl = document.getElementById('youtubeCompetitorsChart');
-    if (ycEl) {{
-      const ycBrands = yc.brands || {{}};
-      // Only render the chart when the dataset is meaningfully populated.
-      // Threshold: 2+ brands with non-zero data AND total data points across
-      // all brands >= 6 (so we don't render a "blank" chart on a single
-      // brand-month landing through before quota tightened — same principle
-      // as removing the empty subreddit table).
-      const brandsWithData = Object.values(ycBrands).filter(arr => arr && arr.some(v => v > 0));
-      const totalPoints = Object.values(ycBrands).reduce((acc, arr) => acc + (arr || []).filter(v => v > 0).length, 0);
-      const meaningful = yc.months && yc.months.length >= 3 && brandsWithData.length >= 2 && totalPoints >= 6;
-      if (meaningful) {{
-        const ycDatasets = d.brand_order.filter(b => ycBrands[b]).map(b => ({{
-          label: b, data: ycBrands[b], borderColor: d.brand_colors[b] || '#999',
-          backgroundColor: 'transparent', borderWidth: 1.8, tension: 0.25, pointRadius: 0,
-        }}));
-        new Chart(ycEl, {{
-          type: 'line',
-          data: {{ labels: yc.months, datasets: ycDatasets }},
-          options: {{
-            responsive: true, maintainAspectRatio: false,
-            plugins: {{ legend: {{ position: 'bottom', labels: {{ font: {{ size: 11 }} }} }}, tooltip: {{ mode: 'index', intersect: false }} }},
-            scales: {{
-              x: {{ grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }}, maxTicksLimit: 10, autoSkip: true }} }},
-              y: {{ grid: {{ color: 'rgba(0,0,0,0.04)' }}, ticks: {{ font: {{ size: 10 }} }},
-                    title: {{ display: true, text: 'Monthly videos per brand', font: {{ size: 10 }} }} }},
-            }},
-          }},
-        }});
-      }} else {{
-        // Honest empty state — show what's blocking, not a broken-looking chart.
-        const ptsByBrand = d.brand_order
-          .map(b => ({{ b, n: (ycBrands[b] || []).filter(v => v > 0).length }}))
-          .filter(x => x.n > 0)
-          .map(x => `${{x.b}} (${{x.n}})`)
-          .join(' · ') || 'none yet';
-        ycEl.parentElement.innerHTML = (
-          '<div class="placeholder" style="text-align:left;padding:18px 22px">'
-          + '<strong style="color:var(--text)">Not enough competitor data to plot yet.</strong>'
-          + '<div style="margin-top:6px">YouTube\\'s 10K-unit daily quota gets eaten by the general + linoleic passes before all 6 competitor brands complete. '
-          + 'Brands with at least one month of data so far: <strong>' + ptsByBrand + '</strong>.</div>'
-          + '<div style="margin-top:6px">Fix: re-run <code>scripts/fetch_youtube.py</code> first-thing after midnight Pacific so the competitor pass gets full quota. Will populate once 2+ brands have 3+ months.</div>'
-          + '</div>'
-        );
-      }}
-    }}
+    // YouTube competitor chart removed in pass 11 — see render_social_overview
+    // note. Brand-vs-brand comparison lives in the Reddit Brand SoV chart.
 
     // ── Section 01B — Category Demand (Trends + Category Growth) ─────────
     const tr = d.trends || {{}};
