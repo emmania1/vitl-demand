@@ -1,0 +1,15 @@
+period,kind,ebitda_margin_pct,note
+2020,annual,10.0,Pre-IPO normalized
+2021,annual,3.0,IPO year — SG&A buildout
+2022,annual,5.0,Avian-flu cost pressure
+2023,annual,10.0,Recovery
+2024,annual,14.0,Premium expansion peak
+2025-Q1,quarterly,16.9,Cycle peak
+2025-Q2,quarterly,15.0,
+2025-Q3,quarterly,13.0,
+2025-Q4,quarterly,10.0,ERP residual
+2026-Q1,quarterly,2.7,Print miss
+2026-Q2E,quarterly,-10.0,Guided trough
+2026-Q4E,quarterly,5.0,Recovery glide-path
+2027E,annual,11.0,Bull case re-norm
+2030T,annual,16.0,Management target (aspirational)

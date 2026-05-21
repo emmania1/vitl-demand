@@ -38,6 +38,8 @@ refresh-data:
 	$(PY) scripts/fetch_hpai.py
 	@echo "── youtube (skipped if YOUTUBE_API_KEY missing) ─────"
 	$(PY) scripts/fetch_youtube.py || echo "  [warn] youtube fetcher failed — continuing"
+	@echo "── compute correlations (no external fetch) ─────────"
+	$(PY) scripts/compute_correlations.py
 	@echo "── regenerate dashboard ─────────────────────────────"
 	$(PY) scripts/generate_vitl_dashboard.py
 
@@ -58,6 +60,8 @@ refresh-fast:
 	$(PY) scripts/fetch_egg_prices.py
 	@echo "── hpai ─────────────────────────────────────────────"
 	$(PY) scripts/fetch_hpai.py
+	@echo "── compute correlations ─────────────────────────────"
+	$(PY) scripts/compute_correlations.py
 	@echo "── regenerate dashboard ─────────────────────────────"
 	$(PY) scripts/generate_vitl_dashboard.py
 

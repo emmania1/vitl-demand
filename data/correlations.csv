@@ -1,0 +1,26 @@
+row,row_label,col,col_label,correlation,n_overlap
+stock,VITL stock,stock,VITL stock,1.0,157
+stock,VITL stock,conv,Conventional egg $,0.445,156
+stock,VITL stock,gap,Premium Gap %,-0.353,124
+stock,VITL stock,reddit,Reddit mentions,0.357,11
+stock,VITL stock,news,News cadence,-0.598,63
+conv,Conventional egg $,stock,VITL stock,0.445,156
+conv,Conventional egg $,conv,Conventional egg $,1.0,264
+conv,Conventional egg $,gap,Premium Gap %,-0.902,124
+conv,Conventional egg $,reddit,Reddit mentions,0.391,11
+conv,Conventional egg $,news,News cadence,-0.413,72
+gap,Premium Gap %,stock,VITL stock,-0.353,124
+gap,Premium Gap %,conv,Conventional egg $,-0.902,124
+gap,Premium Gap %,gap,Premium Gap %,1.0,124
+gap,Premium Gap %,reddit,Reddit mentions,,9
+gap,Premium Gap %,news,News cadence,0.528,60
+reddit,Reddit mentions,stock,VITL stock,0.357,11
+reddit,Reddit mentions,conv,Conventional egg $,0.391,11
+reddit,Reddit mentions,gap,Premium Gap %,,9
+reddit,Reddit mentions,reddit,Reddit mentions,1.0,11
+reddit,Reddit mentions,news,News cadence,,7
+news,News cadence,stock,VITL stock,-0.598,63
+news,News cadence,conv,Conventional egg $,-0.413,72
+news,News cadence,gap,Premium Gap %,0.528,60
+news,News cadence,reddit,Reddit mentions,,7
+news,News cadence,news,News cadence,1.0,73
