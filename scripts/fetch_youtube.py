@@ -25,8 +25,9 @@ from pathlib import Path
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-OUT_CSV          = PROJECT_ROOT / "data" / "youtube_monthly.csv"
-LINOLEIC_OUT_CSV = PROJECT_ROOT / "data" / "youtube_linoleic_monthly.csv"
+OUT_CSV             = PROJECT_ROOT / "data" / "youtube_monthly.csv"
+LINOLEIC_OUT_CSV    = PROJECT_ROOT / "data" / "youtube_linoleic_monthly.csv"
+COMPETITORS_OUT_CSV = PROJECT_ROOT / "data" / "youtube_competitors_monthly.csv"
 
 QUERIES = ["vital farms", "pasture raised eggs"]
 # Linoleic / seed-oil controversy decay query set. YouTube AND-search via
@@ -36,6 +37,16 @@ LINOLEIC_QUERIES = [
     "vital farms linoleic",
     "vital farms PUFA",
     "vital farms seed oil",
+]
+# Per-brand competitor query set for the new YouTube competitor multi-line
+# chart in Section 01B. One query per brand; monthly aggregates over 36mo.
+COMPETITOR_BRANDS = [
+    "vital farms",
+    "handsome brook",
+    "alexandre family farm",
+    "pete and gerry's",
+    "happy egg",
+    "organic valley",
 ]
 MAX_PER_MONTH = 50  # per query
 
@@ -184,6 +195,25 @@ def main() -> int:
         print(f"  · {LINOLEIC_OUT_CSV.name} preserved (linoleic fetch empty; likely quota)")
         if not LINOLEIC_OUT_CSV.exists():
             pd.DataFrame(columns=["month","video_count","view_sum"]).to_csv(LINOLEIC_OUT_CSV, index=False)
+
+    # Competitor brands — 36mo window, separate output
+    print(f"\n  ── competitor pass: {len(COMPETITOR_BRANDS)} brands × 36mo ──")
+    comp_df = _run_query_set(yt, COMPETITOR_BRANDS,
+                             end - timedelta(days=365*3), end,
+                             max_per_month=20, label="competitor")
+    if not comp_df.empty:
+        # Tag each row with the brand it came from (use query as brand label)
+        comp_df = comp_df.rename(columns={"query": "brand"})
+        comp_df = (comp_df.groupby(["month", "brand"])
+                   .agg(video_count=("video_count","sum"), view_sum=("view_sum","sum"))
+                   .reset_index().sort_values(["month","brand"]).reset_index(drop=True))
+        comp_df.to_csv(COMPETITORS_OUT_CSV, index=False)
+        print(f"  ✓ wrote {COMPETITORS_OUT_CSV.name}  rows={len(comp_df)}  "
+              f"unique_brands={comp_df['brand'].nunique()}")
+    else:
+        print(f"  · {COMPETITORS_OUT_CSV.name} preserved (competitor fetch empty; likely quota)")
+        if not COMPETITORS_OUT_CSV.exists():
+            pd.DataFrame(columns=["month","brand","video_count","view_sum"]).to_csv(COMPETITORS_OUT_CSV, index=False)
 
     return 0
 

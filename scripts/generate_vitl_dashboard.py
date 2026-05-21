@@ -130,6 +130,8 @@ def load_all() -> dict:
         "catalysts":          safe_read(DATA_DIR / "forward_catalysts.csv"),
         "recovery_plan":      safe_read(DATA_DIR / "recovery_plan_status.csv"),
         "hpai_cumulative":    safe_read(DATA_DIR / "hpai_cumulative.csv"),
+        # pass-7 addition
+        "youtube_competitors": safe_read(DATA_DIR / "youtube_competitors_monthly.csv"),
     }
 
 
@@ -873,20 +875,23 @@ def compute_brand_awareness(d: dict) -> dict:
 
 
 def compute_runway_math(setup: dict) -> dict:
-    """Computed display values for the Section 01 Runway card."""
+    """Computed display values for the Setup Runway card.
+
+    Revolver size is NOT publicly disclosed in Q1 10-Q (it says 'undrawn
+    revolving credit facility' without specifying capacity). We compute
+    runway from cash alone — the revolver extends it by an unknown amount.
+    """
     current = setup.get("current_cash") or 51
     q_burn = setup.get("q_burn") or 62
-    revolver = 100  # JPM undrawn per Q1 call commentary
-    liquidity = current + revolver
-    # FY26 remaining burn midpoint per guidance + projections (~$60-75M)
     fy26_remaining_lo = 60; fy26_remaining_hi = 75
-    runway_yr_lo = round(liquidity / max(fy26_remaining_hi, 1), 1)
-    runway_yr_hi = round(liquidity / max(fy26_remaining_lo, 1), 1)
+    cash_runway_qs_lo = round(current / max(fy26_remaining_hi, 1) * 4, 1)
+    cash_runway_qs_hi = round(current / max(fy26_remaining_lo, 1) * 4, 1)
     return {
-        "current_cash": current, "q_burn": q_burn, "revolver": revolver,
-        "liquidity": liquidity, "fy26_remaining_lo": fy26_remaining_lo,
+        "current_cash": current, "q_burn": q_burn,
+        "fy26_remaining_lo": fy26_remaining_lo,
         "fy26_remaining_hi": fy26_remaining_hi,
-        "runway_yr_lo": runway_yr_lo, "runway_yr_hi": runway_yr_hi,
+        "cash_runway_qs_lo": cash_runway_qs_lo,
+        "cash_runway_qs_hi": cash_runway_qs_hi,
     }
 
 
@@ -917,6 +922,77 @@ def compute_sov_sentiment(d: dict) -> dict:
         totals[brand] = {"total": int(sum(total)), "pos": int(sum(pos)),
                           "neg": int(sum(neg)), "neu": int(sum(neu))}
     return {"weeks": weeks, "brands": brands, "totals": totals}
+
+
+def compute_youtube_vitl(d: dict) -> dict:
+    """VITL 'vital farms' general query — monthly volume + view_sum."""
+    y = d["youtube_monthly"]
+    if y.empty: return {"months": [], "video_count": [], "view_sum": []}
+    yv = y[y["query"].astype(str).str.contains("vital farms", case=False, na=False)]
+    if yv.empty: return {"months": [], "video_count": [], "view_sum": []}
+    m = yv.groupby("month").agg(video_count=("video_count","sum"), view_sum=("view_sum","sum")).reset_index().sort_values("month")
+    return {
+        "months": m["month"].astype(str).tolist(),
+        "video_count": m["video_count"].astype(int).tolist(),
+        "view_sum": m["view_sum"].astype(float).fillna(0).astype(int).tolist(),
+    }
+
+
+def compute_youtube_competitors(d: dict) -> dict:
+    """Per-brand YouTube monthly video counts. Returns {months, brands: {b: counts}}."""
+    yc = d["youtube_competitors"]
+    if yc.empty: return {"months": [], "brands": {}}
+    months = sorted(yc["month"].astype(str).unique().tolist())
+    BRAND_KEY_TO_DISPLAY = {
+        "vital farms":            "Vital Farms",
+        "handsome brook":         "Handsome Brook",
+        "alexandre family farm":  "Alexandre",
+        "pete and gerry's":       "Pete & Gerry's",
+        "happy egg":              "Happy Egg",
+        "organic valley":         "Organic Valley",
+    }
+    brands = {}
+    for raw_key, display in BRAND_KEY_TO_DISPLAY.items():
+        sub = yc[yc["brand"].astype(str).str.lower() == raw_key.lower()]
+        if sub.empty:
+            brands[display] = [0] * len(months)
+        else:
+            brands[display] = sub.set_index("month")["video_count"].reindex(months, fill_value=0).astype(int).tolist()
+    return {"months": months, "brands": brands}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Dynamic "What this shows" take helper — 2-sentence template with real numbers
+# ─────────────────────────────────────────────────────────────────────────────
+def data_take(*, current: str | None = None, peak: str | None = None,
+              trough: str | None = None, direction: str = "",
+              meaning: str = "") -> str:
+    """Build a 2-sentence 'What this shows' take.
+
+    Sentence 1 = literal current state with numbers; sentence 2 = what it
+    means for VITL right now. Pass already-formatted strings (e.g. with
+    units) so the take reads cleanly.
+
+    Returns HTML that the chart card injects below the source caption.
+    Returns empty string if no inputs given.
+    """
+    bits = []
+    if current:
+        s1 = f"<strong>Current:</strong> {current}"
+        if direction:
+            s1 += f" · <strong>{direction}</strong>"
+        if peak: s1 += f" · peak {peak}"
+        if trough: s1 += f" · trough {trough}"
+        bits.append(s1 + ".")
+    if meaning:
+        bits.append(meaning)
+    if not bits: return ""
+    return (
+        '<div class="dynamic-take">'
+        '<div class="take-eyebrow take-eyebrow-dyn">WHAT THIS SHOWS</div>'
+        + " ".join(f"<p>{b}</p>" for b in bits)
+        + "</div>"
+    )
 
 
 def compute_summary(d, qr, setup, news, egg, fin, corr) -> dict:
@@ -976,11 +1052,13 @@ def datestamp_chip(ds: str) -> str:
 
 def chart_card(chart_id: str, title: str, subtitle: str, source: str,
                read_md_path: Path, y_axis_label: str = "",
-               height_class: str = "big") -> str:
+               height_class: str = "big",
+               dynamic_take: str = "") -> str:
     """Render the chrome around a chart canvas with consistent title /
-    subtitle / source / y-axis caption / what-to-watch from /reads/."""
+    subtitle / source / y-axis caption / dynamic 'What this shows' (real
+    numbers from data) / static 'What to watch' (forward-looking from md)."""
     md = load_markdown(read_md_path)
-    take_html = (
+    static_take_html = (
         f'<div class="chart-take">'
         f'<div class="take-eyebrow">WHAT TO WATCH {datestamp_chip(md["datestamp"])}</div>'
         f'{md["html"]}'
@@ -996,7 +1074,8 @@ def chart_card(chart_id: str, title: str, subtitle: str, source: str,
   {y_label_html}
   <div class="chart-wrap {height_class}"><canvas id="{chart_id}"></canvas></div>
   <div class="source-caption"><strong>Source:</strong> {source}</div>
-  {take_html}
+  {dynamic_take}
+  {static_take_html}
 </div>
 """
 
@@ -1157,7 +1236,7 @@ def render_setup(setup: dict, runway: dict) -> str:
 
     return f"""
 <div class="section-header" id="setup">
-  <div class="section-num">SECTION 01</div>
+  <div class="section-num">SECTION 02</div>
   <div class="section-title">The Setup — Conviction vs Cash</div>
   <div class="section-subtitle">Four panels on one frame · the single binary that breaks or makes the thesis.</div>
 </div>
@@ -1167,13 +1246,13 @@ def render_setup(setup: dict, runway: dict) -> str:
   <div class="setup-card setup-runway">
     <div class="setup-card-header">
       <div class="setup-card-title">Runway Math {datestamp_chip(runway_md['datestamp'])}</div>
-      <div class="setup-kpi">~{runway['runway_yr_lo']}-{runway['runway_yr_hi']} years forward</div>
+      <div class="setup-kpi">covenant resolution by ~Aug = binary</div>
     </div>
-    <div class="runway-big">~{runway['runway_yr_lo']}-{runway['runway_yr_hi']} <span class="runway-big-unit">years runway</span></div>
-    <div class="runway-line">${runway['current_cash']:.0f}M cash + ${runway['revolver']:.0f}M undrawn JPM revolver = <strong>${runway['liquidity']:.0f}M</strong> liquidity</div>
-    <div class="runway-line">FY26 implied remaining burn <strong>${runway['fy26_remaining_lo']}-{runway['fy26_remaining_hi']}M</strong> · projection to FY27 ~$60M/yr</div>
+    <div class="runway-big">${runway['current_cash']:.0f}M <span class="runway-big-unit">cash on balance sheet</span></div>
+    <div class="runway-line">+ JPM revolver <em>(undrawn, size not publicly disclosed)</em></div>
+    <div class="runway-line">FY26 implied remaining burn <strong>${runway['fy26_remaining_lo']}-{runway['fy26_remaining_hi']}M</strong> · cash alone covers ~{runway['cash_runway_qs_lo']}-{runway['cash_runway_qs_hi']} quarters</div>
     <div class="runway-line"><span class="badge badge-mid">JPM covenant talks ongoing</span> · net-leverage covenant 3.5x</div>
-    <div class="setup-foot"><strong>What to watch:</strong> any 8-K mentioning amendment terms. Clean amendment = the floor signal; equity raise = the dilution event.</div>
+    <div class="setup-foot"><strong>What to watch:</strong> cash position is tight but not yet at crisis levels. Revolver size unknown publicly — Q1 10-Q discloses "undrawn revolving credit facility" without specifying capacity. Watch any 8-K mentioning amendment terms; clean amendment = floor signal, equity raise = dilution event.</div>
     {refresh_footer(DATA_DIR / "cash_position.csv")}
   </div>
 
@@ -1271,7 +1350,7 @@ def render_stock_news(events: dict, news: dict, cad_vs_stock: dict) -> str:
 
     return f"""
 <div class="section-header" id="news">
-  <div class="section-num">SECTION 02</div>
+  <div class="section-num">SECTION 03</div>
   <div class="section-title">Stock &amp; News <span class="muted-cell" style="font-size:11.5px;font-weight:500">· {news.get('total', 0)} articles tracked</span></div>
   <div class="section-subtitle">Reaction magnitude check (are bad-news reactions shrinking?) · hero stock+events chart · topic mix over time · cadence vs stock · article log.</div>
 </div>
@@ -1282,7 +1361,15 @@ def render_stock_news(events: dict, news: dict, cad_vs_stock: dict) -> str:
             "Same event log as the chart below (data/event_reactions.csv). Each bar height = stock day-reaction (%). Color = reaction kind (red/yellow/green).",
             READS_DIR / "reaction_magnitude_take.md",
             y_axis_label="Stock day-reaction (%) · green ring = first positive reaction · gray = flat",
-            height_class="big")}
+            height_class="big",
+            dynamic_take=data_take(
+                current="-26% reaction on May 7 Q1 print (the hardest of the cycle)",
+                peak="+3.6% on April 2 (only positive)",
+                direction="reset after a 4-month decline trend",
+                meaning=("The pattern to watch: the NEXT negative event coming in smaller than -26% "
+                         "= selling exhausting. Same or larger = trough not yet in. The April 2 +3.6% "
+                         "was the cycle's only positive — it suggested early exhaustion before May 7 "
+                         "reset the count.")))}
 
 <div class="chart-card">
   <div class="chart-title-row">
@@ -1347,7 +1434,7 @@ def render_egg_market(egg: dict) -> str:
 
     return f"""
 <div class="section-header" id="egg-market">
-  <div class="section-num">SECTION 03</div>
+  <div class="section-num">SECTION 04</div>
   <div class="section-title">The Egg Market — Price Gap Tracker</div>
   <div class="section-subtitle">The single most analytically unique panel on the dashboard. Four sub-charts split out so each tells one story.</div>
 </div>
@@ -1387,7 +1474,15 @@ def render_egg_market(egg: dict) -> str:
             "Derived from the two series above. Shaded band = 150-200% historical norm.",
             READS_DIR / "premium_gap_take.md",
             y_axis_label="Gap (%)",
-            height_class="big")}
+            height_class="big",
+            dynamic_take=data_take(
+                current=f"{egg['latest_gap']:.0f}% gap (latest)" if egg.get('latest_gap') is not None else "n/a",
+                peak=f"{egg['peak_gap']:.0f}% (Q1 2026 trough conv. prices)" if egg.get('peak_gap') is not None else None,
+                direction=("well above 150-200% historical norm — wide" if egg.get('latest_gap', 0) and egg['latest_gap'] > 250 else "near historical norm"),
+                meaning=("Recovery requires this to fall toward 200%. Either conventional prices "
+                         "rise back toward $2-3/dz OR VITL cuts further — management chose to cut "
+                         "selectively in Q1 (35% → 25% at one top customer → +18% volume in 2 wk). "
+                         "Watch the chart for the inflection.")))}
 
 {chart_card("eggChart3",
             "VITL Stock vs Premium Gap % · 18 months",
@@ -1432,75 +1527,213 @@ def render_egg_market(egg: dict) -> str:
 """
 
 
-def render_community(comm: dict) -> str:
-    md = load_markdown(READS_DIR / "brand_health_take.md")
-    # Subreddit table
+def _build_subreddit_table(comm: dict) -> str:
     if not comm["sub_rows"]:
-        body = '<div class="placeholder">No subreddits in <code>config/reddit_subreddits.csv</code>.</div>'
-    else:
-        rows_html = ""
-        for r in comm["sub_rows"]:
-            yoy = r["yoy_pct"]
-            yoy_cls = "badge-pos" if (yoy is not None and yoy >= 0) else ("badge-neg" if yoy is not None else "")
-            yoy_html = (f'<span class="badge {yoy_cls}">{fmt_pct(yoy)}</span>'
-                        if yoy is not None else '<span class="muted-cell">—</span>')
-            rows_html += f"""
+        return '<div class="placeholder">No subreddits in <code>config/reddit_subreddits.csv</code>.</div>'
+    rows_html = ""
+    nonzero_subs = 0
+    for r in comm["sub_rows"]:
+        yoy = r["yoy_pct"]
+        yoy_cls = "badge-pos" if (yoy is not None and yoy >= 0) else ("badge-neg" if yoy is not None else "")
+        yoy_html = (f'<span class="badge {yoy_cls}">{fmt_pct(yoy)}</span>'
+                    if yoy is not None else '<span class="muted-cell">—</span>')
+        m90 = r["mentions_90d"]
+        if isinstance(m90, (int, float)) and m90 > 0: nonzero_subs += 1
+        rows_html += f"""
 <tr>
   <td><strong>r/{r['subreddit']}</strong></td>
   <td>{r['topic']}</td>
   <td><span class="badge badge-na">{r['priority']}</span></td>
-  <td class="num">{fmt_num(r['mentions_90d'])}</td>
+  <td class="num">{fmt_num(m90)}</td>
   <td class="num">{yoy_html}</td>
 </tr>"""
-        body = f"""<div class="table-card"><table><thead><tr>
-<th>Subreddit</th><th>Topic</th><th>Priority</th>
-<th class="num">Mentions (90d)</th><th class="num">YoY %</th>
-</tr></thead><tbody>{rows_html}</tbody></table></div>"""
+    note = ""
+    if nonzero_subs <= 2:
+        note = ('<div class="callout-strip" style="margin-top:8px;font-size:11.5px"><strong>Note:</strong> '
+                'premium-egg brand names are sparse in general food subs even with full body+comments coverage. '
+                'The base rate of users typing "vital farms" in titles or bodies is low — most mentions are '
+                'in r/nutrition, r/EatCheapAndHealthy, r/seedoilfree, r/Costco, r/Carnivore.</div>')
+    return (f'<div class="table-card"><table><thead><tr>'
+            f'<th>Subreddit</th><th>Topic</th><th>Priority</th>'
+            f'<th class="num">Mentions (90d)</th><th class="num">YoY %</th>'
+            f'</tr></thead><tbody>{rows_html}</tbody></table></div>') + note
 
-    # Brand stat cards — now labeled with total + positive % + negative %
+
+def _build_brand_stat_row(comm: dict) -> str:
     totals = comm.get("totals") or {}
     sov_totals = comm.get("sov_sentiment_totals") or {}
-    brand_totals_html = ""
-    if totals:
-        top = sorted(totals.items(), key=lambda kv: kv[1], reverse=True)
-        cards = []
-        for k, v in top:
-            sent = sov_totals.get(k, {})
-            pos = sent.get("pos", 0); neg = sent.get("neg", 0); total = sent.get("total", v) or v
-            pos_pct = round(pos / total * 100, 0) if total > 0 else 0
-            neg_pct = round(neg / total * 100, 0) if total > 0 else 0
-            cards.append(
-                f'<div class="stat-card">'
-                f'<div class="stat-val">{fmt_num(v)}</div>'
-                f'<div class="stat-lbl">{k}</div>'
-                f'<div class="muted-cell" style="font-size:10.5px;margin-top:4px">'
-                f'<span style="color:#2a5a30">+{pos_pct:.0f}% pos</span> · '
-                f'<span style="color:#b34738">{neg_pct:.0f}% neg</span></div>'
-                f'</div>'
-            )
-        brand_totals_html = '<div class="stat-row">' + "".join(cards) + "</div>"
-        brand_totals_html += (
-            '<div class="callout-strip" style="margin-top:8px"><strong>Numbers explained:</strong> '
-            'Each card shows total Reddit posts + comments mentioning the brand over the 36-month window. '
-            'Pos/neg % from dictionary-based sentiment classifier on body text. '
-            'VITL holding ≥50% share of voice + positive % stable = category dominance intact.</div>'
+    if not totals: return ""
+    top = sorted(totals.items(), key=lambda kv: kv[1], reverse=True)
+    cards = []
+    vitl_share = None
+    grand_total = sum(v for _, v in top) or 1
+    for k, v in top:
+        sent = sov_totals.get(k, {})
+        pos = sent.get("pos", 0); neg = sent.get("neg", 0); neu = sent.get("neu", 0)
+        total = sent.get("total", v) or v
+        pos_pct = round(pos / total * 100, 0) if total > 0 else 0
+        neg_pct = round(neg / total * 100, 0) if total > 0 else 0
+        neu_pct = round(neu / total * 100, 0) if total > 0 else 0
+        if k == "Vital Farms":
+            vitl_share = round(v / grand_total * 100, 0)
+        cards.append(
+            f'<div class="stat-card">'
+            f'<div class="stat-lbl">{k}</div>'
+            f'<div class="stat-val">{fmt_num(v)}</div>'
+            f'<div class="muted-cell" style="font-size:10.5px;margin-top:4px;line-height:1.5">'
+            f'<span style="color:#2a5a30">+{pos_pct:.0f}% pos</span> · '
+            f'<span style="color:#888">{neu_pct:.0f}% neu</span> · '
+            f'<span style="color:#b34738">{neg_pct:.0f}% neg</span></div>'
+            f'</div>'
+        )
+    header = (
+        f'<div class="brand-totals-header">'
+        f'<div class="brand-totals-eyebrow">BRAND MENTION TOTALS · 36-MONTH REDDIT VOLUME</div>'
+        f'<div class="brand-totals-vitl-share">'
+        f'VITL share of voice: <strong>{vitl_share:.0f}%</strong> of monitored total' if vitl_share is not None else
+        f'<div class="brand-totals-vitl-share">'
+        f'VITL share: <strong>—</strong>'
+    )
+    header += '</div></div>'
+    explainer = (
+        '<div class="callout-strip" style="margin-top:8px"><strong>Numbers explained:</strong> '
+        'Each card shows total Reddit posts + comments mentioning the brand over 36 months across '
+        '15 monitored subreddits. Volume = mindshare. Pos / neu / neg % from dictionary-based '
+        'sentiment classifier on body text. VITL holding 50%+ category share + positive % stable = '
+        'dominance intact. <strong>Watch:</strong> if any competitor positive % crosses VITL\'s — '
+        'that\'s the early signal of share migration.</div>'
+    )
+    return header + '<div class="stat-row">' + "".join(cards) + "</div>" + explainer
+
+
+def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict) -> str:
+    """Section 01 — Social Signal Overview (NEW).
+
+    Three subsections: Reddit, YouTube, Controversy. Promoted from old
+    Section 04 per PM ask for a 'social widget' as headline panel.
+    """
+    sub_table = _build_subreddit_table(comm)
+    brand_stat_row = _build_brand_stat_row(comm)
+
+    # Dynamic takes computed from the data
+    # --- Subreddit mentions
+    total_90d = sum((r.get("mentions_90d") or 0) for r in comm.get("sub_rows", []))
+    nonzero_subs = sum(1 for r in comm.get("sub_rows", []) if (r.get("mentions_90d") or 0) > 0)
+    sub_take = data_take(
+        current=f"{total_90d} mentions across {nonzero_subs} active subs in last 90d",
+        direction=("sparse · expected" if total_90d < 30 else "live with real volume"),
+        meaning=("Premium-egg brand mentions are inherently rare in casual food subs — most chatter "
+                 "lives in nutrition / seed-oil / Costco / paleo subs. Signal lives at the brand level "
+                 "(SoV chart below) more than the per-sub aggregate."),
+    )
+
+    # --- Brand SoV totals
+    totals = comm.get("totals") or {}
+    sov_totals = comm.get("sov_sentiment_totals") or {}
+    grand = sum(totals.values()) or 1
+    vitl_total = totals.get("Vital Farms", 0)
+    vitl_pct = round(vitl_total / grand * 100, 0) if grand else 0
+    vitl_sent = sov_totals.get("Vital Farms", {})
+    vitl_pos_pct = round(vitl_sent.get("pos", 0) / max(vitl_sent.get("total", 1), 1) * 100, 0)
+    sov_take = data_take(
+        current=f"VITL {vitl_total} mentions ({vitl_pct:.0f}% of 6-brand total), {vitl_pos_pct:.0f}% positive sentiment",
+        direction=("dominant" if vitl_pct >= 50 else "below 50% category share"),
+        meaning=("Dominant share-of-voice with positive sentiment intact is consistent with the "
+                 "bull case (brand moat survived the cycle). Watch monthly for any competitor "
+                 "positive % crossing VITL's — that's the early share-migration tell."),
+    )
+
+    # --- Linoleic decay
+    lin_reddit = comm.get("linoleic", {}).get("reddit", []) or []
+    lin_current = lin_reddit[-1] if lin_reddit else 0
+    lin_peak = max(lin_reddit) if lin_reddit else 0
+    lin_take = data_take(
+        current=f"{lin_current} weekly posts (latest)",
+        peak=f"{lin_peak} (Jan 2026 spike)",
+        direction=("decaying" if lin_current < lin_peak * 0.5 else "still elevated"),
+        meaning=("Per management commentary the controversy had negligible purchase impact. The "
+                 "chart's decay back toward baseline supports that — sharper or sustained rebound "
+                 "would warrant rethinking the brand-intactness assumption."),
+    )
+
+    # --- Controversy vs stock
+    cvs = comm.get("controversy_vs_stock", {})
+    cvs_take = ""
+    if cvs.get("weeks"):
+        l = cvs["controversy_idx"][-1] if cvs.get("controversy_idx") else 100
+        s = cvs["stock_idx"][-1] if cvs.get("stock_idx") else 100
+        cvs_take = data_take(
+            current=f"Controversy index at {l:.0f}, stock at {s:.0f} (both 100 at start)",
+            direction=("decoupled" if abs(l - s) > 30 else "moving together"),
+            meaning=("If the lines diverge sharply, the stock isn't pricing the controversy as "
+                     "structural damage — it's noise. If they track each other tightly, the brand "
+                     "thesis took real hit."),
+        )
+
+    # --- YouTube VITL
+    yt_v_counts = yt_vitl.get("video_count", []) or []
+    yt_v_current = yt_v_counts[-1] if yt_v_counts else 0
+    yt_v_peak = max(yt_v_counts) if yt_v_counts else 0
+    yt_take = data_take(
+        current=(f"{yt_v_current} videos in latest month" if yt_v_counts
+                 else "no data yet — YOUTUBE_API_KEY missing or quota burned"),
+        peak=(f"{yt_v_peak} (cycle peak)" if yt_v_peak else None),
+        direction=("active" if yt_v_current > 0 else "empty until next quota window"),
+        meaning=("Total YouTube mindshare on VITL — independent of the controversy or recovery "
+                 "narrative. A persistent rise or fall in video count signals the brand is "
+                 "getting more or less air time in long-form creator content."),
+    )
+
+    # --- YouTube competitor multi-line
+    yt_brands = yt_comp.get("brands", {}) or {}
+    yt_totals = {b: sum(arr) for b, arr in yt_brands.items()}
+    yt_total_all = sum(yt_totals.values()) or 0
+    yt_vitl_pct = round(yt_totals.get("Vital Farms", 0) / max(yt_total_all, 1) * 100, 0)
+    yt_comp_take = data_take(
+        current=(f"VITL {yt_totals.get('Vital Farms', 0)} videos / {yt_vitl_pct:.0f}% of 6-brand YouTube total"
+                 if yt_total_all > 0 else "no data yet — YouTube competitor fetch pending quota"),
+        direction=("dominant on YouTube" if yt_vitl_pct >= 50 else "below 50% on YouTube"),
+        meaning=("YouTube competitor mindshare is a slower-moving complement to Reddit. Watch for "
+                 "any brand gaining share faster than VITL — that's the leading signal of category "
+                 "narrative migration in long-form content."),
+    )
+
+    yt_competitor_present = any(any(v) for v in yt_brands.values())
+    yt_competitor_empty_card = ""
+    if not yt_competitor_present:
+        yt_competitor_empty_card = (
+            '<div class="placeholder" style="margin-top:6px">'
+            'YouTube competitor data pending. Re-run <code>fetch_youtube.py</code> when '
+            'YOUTUBE_API_KEY is set and daily quota is fresh.</div>'
         )
 
     return f"""
-<div class="section-header" id="community">
-  <div class="section-num">SECTION 04</div>
-  <div class="section-title">Brand Health &amp; Distribution</div>
-  <div class="section-subtitle">Reddit volume across food/health/value subs · 6-brand share of voice · controversy decay · TDPs vs revenue.</div>
+<div class="section-header" id="social">
+  <div class="section-num">SECTION 01</div>
+  <div class="section-title">Social Signal Overview</div>
+  <div class="section-subtitle">Reddit · YouTube · competitive mindshare — the social widget that anchors the brand-health thesis.</div>
+</div>
+
+<div class="section-level-caption">
+  The thesis on brand intactness lives or dies in these panels. If VITL's positive share of voice
+  holds while competitors gain volume — <strong>brand moat intact</strong>. If sentiment turns or
+  competitors gain positive share — <strong>structural damage</strong>.
+</div>
+
+<div class="subsection-header">
+  <div class="subsection-eyebrow">1A · REDDIT SIGNAL</div>
+  <div class="subsection-title">Mention volume + sentiment across 15 monitored subs</div>
 </div>
 
 <div class="chart-card">
   <div class="chart-title-row">
     <h3>Subreddit Mention Activity · Past 90 Days &amp; YoY</h3>
-    <div class="chart-subtitle">Title + post body + comments via Arctic Shift. Sparse on most subs — premium-egg brand names are not commonly written by users.</div>
+    <div class="chart-subtitle">Title + post body + comments via Arctic Shift. Mention base rates are low for niche brand names — that's a feature of casual food forums, not a fetcher bug.</div>
   </div>
   <div class="axis-label">Mentions (90d) = absolute count · YoY = vs same 90d window 12 months ago</div>
-  {body}
-  <div class="source-caption"><strong>Source:</strong> Arctic Shift public archive via <code>fetch_reddit_arctic.py</code> (3-stage sweep: title → selftext → comments).</div>
+  {sub_table}
+  <div class="source-caption"><strong>Source:</strong> Arctic Shift public archive via <code>fetch_reddit_arctic.py</code> (3-stage sweep: title → selftext → comments). Bot accounts filtered; comments &lt;30 chars dropped.</div>
+  {sub_take}
   {refresh_footer(DATA_DIR / "reddit_mentions_weekly.csv")}
 </div>
 
@@ -1510,8 +1743,70 @@ def render_community(comm: dict) -> str:
             "Arctic Shift title + body + comments sweep per brand. Dictionary-based sentiment classifier on body text (pos AND no neg → positive · neg AND no pos → negative · both/neither → neutral). Brands with 0 hits shown as flat zero-stacks.",
             READS_DIR / "brand_sov_take.md",
             y_axis_label="Weekly mentions stacked by sentiment (positive / neutral / negative)",
-            height_class="big")}
-{brand_totals_html}
+            height_class="big",
+            dynamic_take=sov_take)}
+{brand_stat_row}
+
+<div class="subsection-header">
+  <div class="subsection-eyebrow">1B · YOUTUBE SIGNAL</div>
+  <div class="subsection-title">Long-form creator mindshare · monthly</div>
+</div>
+
+{chart_card("youtubeVitlChart",
+            "VITL YouTube Mention Volume · Monthly · 36 months",
+            "Total mindshare on YouTube — independent of the controversy or recovery narrative.",
+            "YouTube Data API v3 via fetch_youtube.py · query \"vital farms\" · monthly video count.",
+            READS_DIR / "brand_awareness_take.md",
+            y_axis_label="Videos uploaded per month mentioning the brand",
+            height_class="big",
+            dynamic_take=yt_take)}
+
+{chart_card("youtubeCompetitorsChart",
+            "Brand Mentions vs Competitors on YouTube · 36 months",
+            "Whose brand is gaining or losing on YouTube? Multi-line monthly video counts across all 6 brands.",
+            "YouTube Data API v3 · per-brand monthly query (\"vital farms\", \"handsome brook\", \"alexandre family farm\", \"pete and gerry's\", \"happy egg\", \"organic valley\"). Output: data/youtube_competitors_monthly.csv.",
+            READS_DIR / "brand_sov_take.md",
+            y_axis_label="Monthly videos per brand",
+            height_class="big",
+            dynamic_take=yt_comp_take)}
+{yt_competitor_empty_card}
+
+<div class="subsection-header">
+  <div class="subsection-eyebrow">1C · CONTROVERSY TRACKER</div>
+  <div class="subsection-title">Linoleic-acid / seed-oil narrative decay</div>
+</div>
+
+{chart_card("linoleicChart",
+            "Linoleic-Acid Controversy Decay · 12 months weekly",
+            "Reddit posts + comments mentioning \"vital farms\" AND (\"linoleic\" OR \"PUFA\" OR \"seed oil\"). YouTube monthly video count overlaid where available.",
+            "Reddit from r/seedoilfree + r/Carnivore + r/nutrition (Arctic Shift). YouTube from queries \"vital farms linoleic/PUFA/seed oil\" (data/youtube_linoleic_monthly.csv).",
+            READS_DIR / "linoleic_take.md",
+            y_axis_label="Reddit = weekly posts (left), YouTube = monthly videos (right, normalized)",
+            height_class="big",
+            dynamic_take=lin_take)}
+
+{chart_card("controversyVsStockChart",
+            "Controversy Mentions vs VITL Stock · 12 months",
+            "Two lines normalized to 100 at start. Tests whether the linoleic chatter actually moved the stock.",
+            "Reddit mentions from linoleic_decay_weekly.csv. Stock from yfinance.",
+            READS_DIR / "controversy_vs_stock_take.md",
+            y_axis_label="Both series indexed to 100 at start",
+            height_class="big",
+            dynamic_take=cvs_take)}
+"""
+
+
+def render_community(comm: dict) -> str:
+    """Section 05 (was 04) — DEMOTED. Only brand awareness + HH penetration
+    remain after Reddit/SoV/linoleic/controversy moved to Section 01."""
+    # Brand awareness dynamic take
+    md = load_markdown(READS_DIR / "brand_health_take.md")
+    return f"""
+<div class="section-header" id="community">
+  <div class="section-num">SECTION 05</div>
+  <div class="section-title">Brand Health &amp; Distribution</div>
+  <div class="section-subtitle">Annual brand awareness + household penetration. Social signals lifted to Section 01.</div>
+</div>
 
 {chart_card("brandAwarenessChart",
             "Brand Awareness Trajectory · Annual (aided %)",
@@ -1519,7 +1814,13 @@ def render_community(comm: dict) -> str:
             "Manual extract from earnings calls + investor presentations. Annual cadence. 2026E pending FY26 print disclosure.",
             READS_DIR / "brand_awareness_take.md",
             y_axis_label="Aided brand awareness (%)",
-            height_class="big")}
+            height_class="big",
+            dynamic_take=data_take(
+                current="34% aided awareness (2025)", peak="34% (2025)", trough="25% (2023)",
+                direction="rising · +800bps YoY in 2025",
+                meaning=("Awareness climbed during the same year the share-loss narrative gained "
+                         "traction — direct counter-evidence to brand-damage thesis. FY26 print "
+                         "disclosure is the next data point.")))}
 
 <div class="chart-card">
   <div class="chart-title-row">
@@ -1530,24 +1831,13 @@ def render_community(comm: dict) -> str:
     {load_markdown(READS_DIR / "household_penetration.md")['html']}
   </div>
   <div class="source-caption"><strong>Source:</strong> Quarterly call disclosures + investor presentations · updated manually each quarter in <code>reads/household_penetration.md</code>.</div>
+  {data_take(
+      current="14.2M households (+2.0M YoY at year-end 2025)",
+      direction="growing through the disruption",
+      meaning=("Net new buyer acquisition through 2025 despite mid-year ERP onset. Sub-500K "
+               "quarterly growth would be the slow-bleed concern; current pace is well above."))}
   {refresh_footer(READS_DIR / "household_penetration.md")}
 </div>
-
-{chart_card("linoleicChart",
-            "Linoleic-Acid Controversy Decay · 12 months weekly",
-            "Reddit posts + comments mentioning \"vital farms\" AND (\"linoleic\" OR \"PUFA\" OR \"seed oil\"). YouTube monthly video count overlaid where available.",
-            "Reddit from r/seedoilfree + r/Carnivore + r/nutrition (Arctic Shift). YouTube from queries \"vital farms linoleic/PUFA/seed oil\" (data/youtube_linoleic_monthly.csv).",
-            READS_DIR / "linoleic_take.md",
-            y_axis_label="Reddit = weekly posts (left), YouTube = monthly videos (right, normalized)",
-            height_class="big")}
-
-{chart_card("controversyVsStockChart",
-            "Controversy Mentions vs VITL Stock · 12 months",
-            "Two lines normalized to 100 at start. Tests whether the linoleic chatter actually moved the stock.",
-            "Reddit mentions from linoleic_decay_weekly.csv. Stock from yfinance.",
-            READS_DIR / "controversy_vs_stock_take.md",
-            y_axis_label="Both series indexed to 100 at start",
-            height_class="big")}
 """
 
 
@@ -1635,7 +1925,7 @@ def render_financial(fin: dict, full_cred: dict, cat_burn: dict) -> str:
 
     return f"""
 <div class="section-header" id="financial">
-  <div class="section-num">SECTION 06</div>
+  <div class="section-num">SECTION 07</div>
   <div class="section-title">Financial History</div>
   <div class="section-subtitle">EBITDA margin arc · cash-burn composition with category flags · 22-quarter guidance scorecard since IPO.</div>
 </div>
@@ -1646,7 +1936,15 @@ def render_financial(fin: dict, full_cred: dict, cat_burn: dict) -> str:
             "Annual data 2020-2024 from 10-K filings. Quarterly 2025-2026 from prints. 2026E+ from management guide ranges. 2030T from corporate strategy day.",
             READS_DIR / "ebitda_history_take.md",
             y_axis_label="EBITDA margin (% of revenue)",
-            height_class="big")}
+            height_class="big",
+            dynamic_take=data_take(
+                current="2.7% Q1 2026 EBITDA margin",
+                peak="16.9% (Q1 2025 — only quarter above 14%)",
+                trough="-10% guided Q2 2026E",
+                direction="rebuilding off the trough",
+                meaning=("The bull case requires returning to 10-12% by 2027 — matches the cut FY26 "
+                         "guide ($0-10M EBITDA on $775-800M revenue) and the long-run historical norm. "
+                         "The 15-17% 2030 target is aspirational — they've only hit that range once.")))}
 
 <div class="chart-card">
   <div class="chart-title-row">
@@ -1721,7 +2019,7 @@ def render_correlation(corr: dict) -> str:
     interp_md = load_markdown(READS_DIR / "correlation_interpretation.md")
     return f"""
 <div class="section-header" id="correlation">
-  <div class="section-num">SECTION 10</div>
+  <div class="section-num">SECTION 11</div>
   <div class="section-title">Correlation Snapshot</div>
   <div class="section-subtitle">Pairwise Pearson correlations across the 5 most important signals. Plain-English read above the matrix; actionability ranking below.</div>
 </div>
@@ -1746,7 +2044,7 @@ def render_operating_recovery(op_rec: dict, tdp: dict) -> str:
     """Section 05 — Comp difficulty + GM trajectory + 2yr stack + TDP (moved from S04)."""
     return f"""
 <div class="section-header" id="operating-recovery">
-  <div class="section-num">SECTION 05</div>
+  <div class="section-num">SECTION 06</div>
   <div class="section-title">Operating Recovery &amp; Comp Difficulty</div>
   <div class="section-subtitle">When does the math turn favorable? GM inflects before revenue · comps get easy in Q4 26 · 2yr stack normalizes for base effects.</div>
 </div>
@@ -1824,7 +2122,7 @@ def render_valuation(val: dict) -> str:
 
     return f"""
 <div class="section-header" id="valuation">
-  <div class="section-num">SECTION 07</div>
+  <div class="section-num">SECTION 08</div>
   <div class="section-title">Valuation Snapshot</div>
   <div class="section-subtitle">Current multiples vs 3yr historical band + scenario math. The asymmetry the bull case is built on.</div>
 </div>
@@ -1886,7 +2184,7 @@ def render_catalysts(cat: dict) -> str:
 
     return f"""
 <div class="section-header" id="catalysts">
-  <div class="section-num">SECTION 08</div>
+  <div class="section-num">SECTION 09</div>
   <div class="section-title">Forward Catalyst Calendar</div>
   <div class="section-subtitle">What's coming and what it could do. Market typically re-rates 1-2 quarters ahead of easy comps.</div>
 </div>
@@ -1933,7 +2231,7 @@ def render_recovery_plan(rplan: dict) -> str:
 
     return f"""
 <div class="section-header" id="recovery-plan">
-  <div class="section-num">SECTION 09</div>
+  <div class="section-num">SECTION 10</div>
   <div class="section-title">Recovery Plan Tracker</div>
   <div class="section-subtitle">The credibility play in real time. Status should progress left to right each quarter.</div>
 </div>
@@ -2028,8 +2326,10 @@ def build_html(d: dict) -> str:
     hpai_cum = compute_hpai_cumulative(d)
     comm    = compute_community(d)
     sov_sentiment = compute_sov_sentiment(d)
-    # Attach sentiment totals to comm so render_community can show pos/neg % per brand
+    # Attach sentiment totals to comm so render_social_overview can show pos/neg % per brand
     comm["sov_sentiment_totals"] = sov_sentiment.get("totals", {})
+    yt_vitl = compute_youtube_vitl(d)
+    yt_comp = compute_youtube_competitors(d)
     brand_aware = compute_brand_awareness(d)
     tdp     = compute_tdp_vs_revenue(d)
     op_rec  = compute_operating_recovery(d)
@@ -2052,6 +2352,8 @@ def build_html(d: dict) -> str:
         "hpai_cum":       hpai_cum,
         "comm":           comm,
         "sov_sentiment":  sov_sentiment,
+        "yt_vitl":        yt_vitl,
+        "yt_comp":        yt_comp,
         "brand_aware":    brand_aware,
         "tdp":            tdp,
         "op_rec":         op_rec,
@@ -2264,6 +2566,37 @@ def build_html(d: dict) -> str:
   .corr-interp-block p {{ font-size: 12.5px; color: var(--text-soft); line-height: 1.65; margin-bottom: 8px; }}
   .corr-interp-block strong {{ color: var(--text); font-weight: 700; }}
 
+  /* Section 01 Social — subsection headers + section caption */
+  .section-level-caption {{ background: linear-gradient(180deg, #f8f9f5, #f0f4eb);
+                            border: 1px solid #cfdbb9; border-left: 4px solid var(--accent);
+                            border-radius: 8px; padding: 12px 18px; margin-bottom: 18px;
+                            font-size: 13px; color: var(--text-soft); line-height: 1.6; }}
+  .section-level-caption strong {{ color: var(--text); font-weight: 700; }}
+  .subsection-header {{ margin: 22px 0 12px; padding: 8px 14px;
+                        border-left: 3px solid var(--accent2); background: var(--surface2);
+                        border-radius: 4px; }}
+  .subsection-eyebrow {{ font-size: 10px; font-weight: 700; color: #8a6b10;
+                         letter-spacing: 1.8px; }}
+  .subsection-title {{ font-size: 14px; font-weight: 700; margin-top: 3px; color: var(--text); }}
+
+  /* Dynamic 2-sentence take below source caption */
+  .dynamic-take {{ background: linear-gradient(180deg, #fdf9ec, #fcefd0);
+                   border: 1px solid #f0d987; border-left: 4px solid var(--accent2);
+                   border-radius: 8px; padding: 12px 18px; margin-top: 12px; }}
+  .take-eyebrow-dyn {{ color: #8a6b10 !important; }}
+  .dynamic-take p {{ font-size: 12.5px; color: var(--text-soft); line-height: 1.6; margin-bottom: 6px; }}
+  .dynamic-take p:last-child {{ margin-bottom: 0; }}
+  .dynamic-take strong {{ color: var(--text); font-weight: 700; }}
+
+  /* Brand totals header above stat cards */
+  .brand-totals-header {{ display: flex; align-items: baseline; justify-content: space-between;
+                          margin: 12px 0 8px; padding: 8px 0 6px;
+                          border-bottom: 1px dashed var(--border); }}
+  .brand-totals-eyebrow {{ font-size: 10px; font-weight: 700; color: var(--accent);
+                           letter-spacing: 1.6px; }}
+  .brand-totals-vitl-share {{ font-size: 12px; color: var(--text-soft); }}
+  .brand-totals-vitl-share strong {{ color: var(--accent); font-weight: 700; font-size: 14px; }}
+
   /* Household penetration card */
   .hh-pen-card {{ background: var(--surface2); border-left: 4px solid var(--accent);
                   border-radius: 6px; padding: 14px 18px; margin: 8px 0; }}
@@ -2406,16 +2739,17 @@ def build_html(d: dict) -> str:
   <h1>{BRAND_NAME} <span style="color:var(--muted);font-weight:400">— {BRAND_TICKER} Recovery Dashboard</span></h1>
   <div class="topbar-nav">
     <a class="nav-btn recovery" href="#quick-read">Quick Read</a>
+    <a class="nav-btn" href="#social">Social</a>
     <a class="nav-btn" href="#setup">Setup</a>
-    <a class="nav-btn" href="#news">Stock &amp; News</a>
-    <a class="nav-btn" href="#egg-market">Egg Market</a>
-    <a class="nav-btn" href="#community">Brand Health</a>
-    <a class="nav-btn" href="#operating-recovery">Operating</a>
+    <a class="nav-btn" href="#news">News</a>
+    <a class="nav-btn" href="#egg-market">Eggs</a>
+    <a class="nav-btn" href="#community">Brand</a>
+    <a class="nav-btn" href="#operating-recovery">Ops</a>
     <a class="nav-btn" href="#financial">Financials</a>
     <a class="nav-btn" href="#valuation">Valuation</a>
     <a class="nav-btn" href="#catalysts">Catalysts</a>
-    <a class="nav-btn" href="#recovery-plan">Plan</a>
-    <a class="nav-btn" href="#correlation">Correlations</a>
+    <a class="nav-btn" href="#recovery-plan">Recovery</a>
+    <a class="nav-btn" href="#correlation">Correlation</a>
   </div>
   <button class="summary-btn" onclick="document.getElementById('summaryModal').style.display='flex'">
     Generate Summary
@@ -2427,6 +2761,7 @@ def build_html(d: dict) -> str:
 
 <div class="container">
   {render_quick_read(qr)}
+  {render_social_overview(comm, yt_vitl, yt_comp)}
   {render_setup(setup, runway)}
   {render_stock_news(events, news, cad_vs_stock)}
   {render_egg_market(egg)}
@@ -2933,6 +3268,65 @@ def build_html(d: dict) -> str:
         borderWidth: 2, borderDash: [5,3], tension: 0.3, pointRadius: 0, spanGaps: true, yAxisID: 'yR',
       }});
     }}
+    // ── Section 01 — YouTube charts ───────────────────────────────────────
+    const yv = window.__vitl.yt_vitl || {{}};
+    const yvEl = document.getElementById('youtubeVitlChart');
+    if (yvEl) {{
+      if (yv.months && yv.months.length > 0) {{
+        new Chart(yvEl, {{
+          type: 'line',
+          data: {{
+            labels: yv.months,
+            datasets: [{{
+              label: 'Videos / month', data: yv.video_count, borderColor: NEG,
+              backgroundColor: 'rgba(201,93,74,0.10)', borderWidth: 2, tension: 0.25,
+              pointRadius: 3, fill: true,
+            }}],
+          }},
+          options: {{
+            responsive: true, maintainAspectRatio: false,
+            plugins: {{ legend: {{ display: false }},
+                        tooltip: {{ callbacks: {{ label: ctx => `${{ctx.raw}} videos` }} }} }},
+            scales: {{
+              x: {{ grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }}, maxTicksLimit: 10, autoSkip: true }} }},
+              y: {{ grid: {{ color: 'rgba(0,0,0,0.04)' }}, ticks: {{ font: {{ size: 10 }} }},
+                    title: {{ display: true, text: 'Videos uploaded / month', font: {{ size: 10 }} }} }},
+            }},
+          }},
+        }});
+      }} else {{
+        yvEl.parentElement.innerHTML = '<div class="placeholder">No YouTube data yet · set <code>YOUTUBE_API_KEY</code> in <code>.env</code> and run <code>make refresh-data</code></div>';
+      }}
+    }}
+
+    const yc = window.__vitl.yt_comp || {{}};
+    const ycEl = document.getElementById('youtubeCompetitorsChart');
+    if (ycEl) {{
+      const ycBrands = yc.brands || {{}};
+      const anyData = Object.values(ycBrands).some(arr => arr && arr.some(v => v > 0));
+      if (yc.months && yc.months.length > 0 && anyData) {{
+        const ycDatasets = d.brand_order.filter(b => ycBrands[b]).map(b => ({{
+          label: b, data: ycBrands[b], borderColor: d.brand_colors[b] || '#999',
+          backgroundColor: 'transparent', borderWidth: 1.8, tension: 0.25, pointRadius: 0,
+        }}));
+        new Chart(ycEl, {{
+          type: 'line',
+          data: {{ labels: yc.months, datasets: ycDatasets }},
+          options: {{
+            responsive: true, maintainAspectRatio: false,
+            plugins: {{ legend: {{ position: 'bottom', labels: {{ font: {{ size: 11 }} }} }}, tooltip: {{ mode: 'index', intersect: false }} }},
+            scales: {{
+              x: {{ grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }}, maxTicksLimit: 10, autoSkip: true }} }},
+              y: {{ grid: {{ color: 'rgba(0,0,0,0.04)' }}, ticks: {{ font: {{ size: 10 }} }},
+                    title: {{ display: true, text: 'Monthly videos per brand', font: {{ size: 10 }} }} }},
+            }},
+          }},
+        }});
+      }} else {{
+        ycEl.parentElement.innerHTML = '<div class="placeholder">YouTube competitor data not yet fetched · set <code>YOUTUBE_API_KEY</code> in <code>.env</code> and run <code>make refresh-data</code></div>';
+      }}
+    }}
+
     new Chart(document.getElementById('linoleicChart'), {{
       type: 'line', data: {{ labels: lin.weeks, datasets: linDatasets }},
       options: {{
