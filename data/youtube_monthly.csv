@@ -1,16 +1,75 @@
 month,query,video_count,view_sum
-2023-05,vital farms,7,0
-2023-06,vital farms,10,0
-2023-07,pasture raised eggs,25,0
-2023-07,vital farms,2,0
-2023-08,vital farms,10,0
-2023-09,vital farms,5,0
-2023-10,pasture raised eggs,23,0
-2023-10,vital farms,10,0
-2023-11,vital farms,9,0
-2023-12,pasture raised eggs,25,0
-2023-12,vital farms,6,0
-2024-01,vital farms,8,0
-2024-07,vital farms,17,0
-2024-09,pasture raised eggs,25,0
-2026-03,pasture raised eggs,25,0
+2023-05,pasture raised eggs,23,2162347
+2023-05,vital farms,7,139751
+2023-06,pasture raised eggs,23,826503
+2023-06,vital farms,10,13944
+2023-07,pasture raised eggs,25,1210598
+2023-07,vital farms,2,402
+2023-08,pasture raised eggs,23,3677553
+2023-08,vital farms,10,38797
+2023-09,pasture raised eggs,23,21941420
+2023-09,vital farms,5,129468
+2023-10,pasture raised eggs,23,1817565
+2023-10,vital farms,10,1470884
+2023-11,pasture raised eggs,24,56725471
+2023-11,vital farms,9,21957
+2023-12,pasture raised eggs,24,3184695
+2023-12,vital farms,6,3571
+2024-01,pasture raised eggs,24,6956099
+2024-01,vital farms,8,4411150
+2024-02,pasture raised eggs,24,2277916
+2024-02,vital farms,9,20668
+2024-03,pasture raised eggs,25,2126521
+2024-03,vital farms,15,225045
+2024-04,pasture raised eggs,25,2324983
+2024-04,vital farms,14,18180
+2024-05,pasture raised eggs,24,16499643
+2024-05,vital farms,16,376407
+2024-06,pasture raised eggs,23,5479807
+2024-06,vital farms,8,340560
+2024-07,pasture raised eggs,25,3133274
+2024-07,vital farms,17,11143
+2024-08,pasture raised eggs,23,18036159
+2024-08,vital farms,9,545887
+2024-09,pasture raised eggs,23,1546635
+2024-09,vital farms,20,216789
+2024-10,pasture raised eggs,24,1987921
+2024-10,vital farms,13,155312
+2024-11,pasture raised eggs,23,7866092
+2024-11,vital farms,15,42998
+2024-12,pasture raised eggs,22,3128804
+2024-12,vital farms,17,21620
+2025-01,pasture raised eggs,21,30454903
+2025-01,vital farms,24,182315
+2025-02,pasture raised eggs,21,20609929
+2025-02,vital farms,19,384172
+2025-03,pasture raised eggs,24,11393866
+2025-03,vital farms,19,2585374
+2025-04,pasture raised eggs,25,62127972
+2025-04,vital farms,16,84572
+2025-05,pasture raised eggs,25,62890855
+2025-05,vital farms,14,26641
+2025-06,pasture raised eggs,25,3159694
+2025-06,vital farms,22,120085361
+2025-07,pasture raised eggs,25,940143
+2025-07,vital farms,10,11064
+2025-08,pasture raised eggs,25,6045836
+2025-08,vital farms,25,3751440
+2025-09,pasture raised eggs,25,7429029
+2025-09,vital farms,17,143431
+2025-10,pasture raised eggs,25,16993976
+2025-10,vital farms,16,2301762
+2025-11,pasture raised eggs,24,4256202
+2025-11,vital farms,25,1504943
+2025-12,pasture raised eggs,23,3387237
+2025-12,vital farms,22,337450
+2026-01,pasture raised eggs,11,405449
+2026-01,vital farms,25,1331844
+2026-02,pasture raised eggs,20,14822191
+2026-02,vital farms,25,2501686
+2026-03,pasture raised eggs,23,7257255
+2026-03,vital farms,24,2455442
+2026-04,pasture raised eggs,20,2693392
+2026-04,vital farms,25,9974023
+2026-05,pasture raised eggs,25,348378
+2026-05,vital farms,25,53528
