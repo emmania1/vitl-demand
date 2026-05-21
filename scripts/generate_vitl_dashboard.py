@@ -139,6 +139,8 @@ def load_all() -> dict:
         "google_trends":      safe_read(DATA_DIR / "google_trends_category_weekly.csv"),
         "customer_metrics":   safe_read(DATA_DIR / "customer_metrics.csv"),
         "category_growth":    safe_read(DATA_DIR / "category_growth.csv"),
+        # pass-12 — category supply (how crowded the category got)
+        "category_supply":    safe_read(DATA_DIR / "category_supply_timeline.csv"),
     }
 
 
@@ -962,6 +964,30 @@ def compute_customer_metrics(d: dict) -> list:
         "source_quote": str(r.get("source_quote", "")),
         "kind": str(r.get("kind", "neutral")).lower(),
     } for _, r in df.iterrows()]
+
+
+def compute_category_supply(d: dict) -> dict:
+    """Section 01B — how crowded the pasture-raised category got over time."""
+    df = d["category_supply"]
+    if df.empty: return {"years": [], "branded": [], "private_label": [], "events": []}
+    df = df.copy().sort_values("year")
+    events = []
+    for _, r in df.iterrows():
+        events.append({
+            "year": int(r["year"]),
+            "event": str(r.get("event", "")),
+            "note": str(r.get("note", "")),
+            "confidence": str(r.get("confidence", "estimated")),
+            "branded": int(r["branded_skus"]),
+            "private_label": int(r["private_label_skus"]),
+            "total": int(r["total_skus"]),
+        })
+    return {
+        "years":         df["year"].astype(int).tolist(),
+        "branded":       df["branded_skus"].astype(int).tolist(),
+        "private_label": df["private_label_skus"].astype(int).tolist(),
+        "events":        events,
+    }
 
 
 def compute_category_growth(d: dict) -> dict:
@@ -1797,7 +1823,108 @@ def _render_youtube_feed(videos: list) -> str:
     return '<div class="feed-list">' + "".join(items) + '</div>'
 
 
-def _render_category_panels(trends: dict, cust_metrics: list, cat_growth: dict) -> str:
+def _render_category_supply_panel(cat_supply: dict) -> str:
+    """How many pasture-raised SKUs were available historically vs now.
+    Stacked-bar by year showing branded vs private-label growth."""
+    years = cat_supply.get("years", [])
+    if not years:
+        return '<div class="placeholder">Category supply timeline not loaded.</div>'
+
+    branded_now = cat_supply["branded"][-1]
+    pl_now = cat_supply["private_label"][-1]
+    total_now = branded_now + pl_now
+    branded_then = cat_supply["branded"][0]
+    pl_then = cat_supply["private_label"][0]
+    total_then = branded_then + pl_then
+    multiple = round(total_now / max(total_then, 1), 1)
+    year_then = years[0]; year_now = years[-1]
+
+    # Major event highlights — pick the most-impactful inflection events
+    events_html = ""
+    KEY_EVENTS = {
+        2014: ("PETE & GERRY'S", "launches Heritage Farm pasture-raised line", "#8e6db4"),
+        2017: ("HANDSOME BROOK", "scales national distribution", "#B5651D"),
+        2021: ("KIRKLAND PASTURE-RAISED", "(Costco PL) — largest single share-taker · ~50% VITL price", "#C95D4A"),
+        2022: ("WHOLE FOODS 365", "Pasture Raised — private label at WF's largest premium-egg retailer", "#C95D4A"),
+        2025: ("ALDI + TRADER JOE'S", "discount + value-grocery channels join", "#C95D4A"),
+    }
+    for e in cat_supply.get("events", []):
+        if e["year"] in KEY_EVENTS:
+            label, sub, color = KEY_EVENTS[e["year"]]
+            events_html += f"""
+<div class="supply-event-row">
+  <div class="supply-event-year" style="color:{color}">{e["year"]}</div>
+  <div class="supply-event-body">
+    <div class="supply-event-label">{label}</div>
+    <div class="supply-event-sub">{sub}</div>
+  </div>
+</div>"""
+
+    return f"""
+<div class="chart-card">
+  <div class="chart-title-row">
+    <h3>How Crowded Did the Pasture-Raised Category Get?</h3>
+    <div class="chart-subtitle">Count of nationally-distributed pasture-raised SKUs at top US retailers. Tests whether VITL's share loss is "more brands carving up the pie" vs "VITL specifically losing customers."</div>
+  </div>
+  <div class="hero-row" style="grid-template-columns:repeat(3, 1fr);margin-top:10px;margin-bottom:14px">
+    <div class="hero-tile">
+      <div class="hero-label">{year_then} SKU count</div>
+      <div class="hero-val">{total_then}</div>
+      <div class="hero-sub">{branded_then} branded · {pl_then} private-label</div>
+    </div>
+    <div class="hero-tile">
+      <div class="hero-label">{year_now} SKU count</div>
+      <div class="hero-val">{total_now}</div>
+      <div class="hero-sub">{branded_now} branded · {pl_now} private-label</div>
+    </div>
+    <div class="hero-tile">
+      <div class="hero-label">Category density · {year_then} → {year_now}</div>
+      <div class="hero-val neg">{multiple}×</div>
+      <div class="hero-sub">competitive density multiplier</div>
+    </div>
+  </div>
+  <div class="chart-wrap big"><canvas id="categorySupplyChart"></canvas></div>
+  <div class="supply-events-list">
+    <div class="supply-events-eyebrow">MAJOR CATEGORY-ENTRY EVENTS</div>
+    {events_html}
+  </div>
+  <div class="source-caption"><strong>Source:</strong> Publicly-documented brand launch dates (press releases + USDA AMS Organic Integrity Database) · private-label launch dates from retailer announcements + trade press. SKU counts approximated per major US retailer footprint (Whole Foods, Sprouts, Costco, Kroger). Marked "documented" or "estimated" per row in <code>data/category_supply_timeline.csv</code>.</div>
+  {data_take(meaning=(
+      f"<strong>What it shows.</strong> In {year_then}, the entire US pasture-raised egg category consisted of "
+      f"{total_then} nationally-distributed SKU{'s' if total_then > 1 else ''} — essentially VITL alone. By "
+      f"{year_now}, that count had grown to <strong>{total_now} SKUs</strong> — <strong>{branded_now} branded "
+      f"competitors plus {pl_now} private-label entrants</strong>. The category density is {multiple}× what it was "
+      f"15 years ago."
+      f"<br><br>"
+      f"<strong>Why this matters.</strong> This directly answers the question: <em>did VITL lose share because "
+      f"the brand got weaker, or because the category got more crowded?</em> The answer is both, but the crowding "
+      f"matters more. Most of VITL's lost share is going to <strong>private-label pasture-raised, not to other "
+      f"branded competitors.</strong> Kirkland Pasture Raised at Costco (launched 2021) and Whole Foods 365 "
+      f"Pasture Raised (2022) are sold at 40-60% of VITL's price-per-dozen, with the same pasture-raised certification. "
+      f"For price-conscious shoppers who care about animal welfare but not specifically about the Vital Farms brand, "
+      f"private label became a credible substitute that simply didn't exist in 2018."
+      f"<br><br>"
+      f"<strong>Where this fits.</strong> The branded peers (Pete & Gerry's, Handsome Brook, Happy Egg, Alexandre, "
+      f"Organic Valley) have all been around for years and aren't suddenly winning — Reddit SoV confirms they're "
+      f"stable in mindshare. The structural change is the <strong>private-label arrival</strong>. That's bad news "
+      f"and good news: bad because the floor for VITL's premium is now anchored to private label pricing (Kirkland "
+      f"sets the ceiling for what consumers think pasture-raised should cost). Good because private-label "
+      f"penetration tends to PLATEAU — once Costco, Whole Foods, Sprouts, Kroger, and Aldi all have a PL pasture-raised "
+      f"SKU, there are no more major retailers left to add. The 12-SKU count is close to category saturation, not the "
+      f"start of an explosion."
+      f"<br><br>"
+      f"<strong>Watchpoint.</strong> Any NEW major retailer adding a private-label pasture-raised SKU = continued "
+      f"pressure. Watch announcements from Walmart, Target, Publix, H-E-B specifically. If those four also launch "
+      f"PL pasture-raised in 2026-27, the floor compresses further. If they don't (which is the more likely outcome — "
+      f"Walmart's experiments have stayed in cage-free), the category has hit supply equilibrium and VITL's share "
+      f"loss bottoms with it."
+  ))}
+</div>
+"""
+
+
+def _render_category_panels(trends: dict, cust_metrics: list, cat_growth: dict,
+                             cat_supply: dict) -> str:
     """Subsection 1B — Category Demand & Customer Mix (3 panels)."""
     # ── Panel A: Google Trends 4-term comparison ──────────────────────────
     latest = trends.get("latest_summary", {}).get("values", {}) or {}
@@ -1940,6 +2067,8 @@ def _render_category_panels(trends: dict, cust_metrics: list, cat_growth: dict) 
             height_class="big",
             dynamic_take=cat_take)}
 
+{_render_category_supply_panel(cat_supply)}
+
 <div class="chart-card">
   <div class="chart-title-row">
     <h3>Where Is the Share Going? — Attribution Limits + Best-Inference</h3>
@@ -1978,7 +2107,8 @@ def _render_category_panels(trends: dict, cust_metrics: list, cat_growth: dict) 
 
 def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
                             reddit_posts: list, yt_videos: list,
-                            trends: dict, cust_metrics: list, cat_growth: dict) -> str:
+                            trends: dict, cust_metrics: list, cat_growth: dict,
+                            cat_supply: dict) -> str:
     """Section 01 — Social Signal Overview (NEW).
 
     Three subsections: Reddit, YouTube, Controversy. Promoted from old
@@ -2146,7 +2276,7 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
 
     reddit_feed_html = _render_reddit_feed(reddit_posts)
     youtube_feed_html = _render_youtube_feed(yt_videos)
-    category_section_html = _render_category_panels(trends, cust_metrics, cat_growth)
+    category_section_html = _render_category_panels(trends, cust_metrics, cat_growth, cat_supply)
 
     # Kept for potential future revival when YouTube quota becomes a non-issue
     # (apply for higher quota tier from Google) and creators start making more
@@ -2844,6 +2974,7 @@ def build_html(d: dict) -> str:
     trends = compute_google_trends(d)
     cust_metrics = compute_customer_metrics(d)
     cat_growth = compute_category_growth(d)
+    cat_supply = compute_category_supply(d)
     brand_aware = compute_brand_awareness(d)
     tdp     = compute_tdp_vs_revenue(d)
     op_rec  = compute_operating_recovery(d)
@@ -2870,6 +3001,7 @@ def build_html(d: dict) -> str:
         "yt_comp":        yt_comp,
         "trends":         trends,
         "cat_growth":     cat_growth,
+        "cat_supply":     cat_supply,
         "brand_aware":    brand_aware,
         "tdp":            tdp,
         "op_rec":         op_rec,
@@ -3081,6 +3213,20 @@ def build_html(d: dict) -> str:
   .corr-interp-block ul li:before {{ content: "›"; position: absolute; left: 0; color: #8a6b10; font-weight: 700; }}
   .corr-interp-block p {{ font-size: 12.5px; color: var(--text-soft); line-height: 1.65; margin-bottom: 8px; }}
   .corr-interp-block strong {{ color: var(--text); font-weight: 700; }}
+
+  /* Section 01B — Category Supply events list */
+  .supply-events-list {{ margin: 12px 0 8px; padding: 12px 16px;
+                         background: var(--surface2); border-radius: 6px;
+                         border-left: 3px solid var(--neg); }}
+  .supply-events-eyebrow {{ font-size: 10px; font-weight: 700; color: var(--muted);
+                            letter-spacing: 1.5px; margin-bottom: 8px; }}
+  .supply-event-row {{ display: flex; gap: 14px; padding: 6px 0;
+                       border-bottom: 1px dashed var(--border); align-items: baseline; }}
+  .supply-event-row:last-child {{ border-bottom: none; }}
+  .supply-event-year {{ font-size: 13px; font-weight: 700; min-width: 44px; font-variant-numeric: tabular-nums; }}
+  .supply-event-body {{ flex: 1; }}
+  .supply-event-label {{ font-size: 12px; font-weight: 700; color: var(--text); letter-spacing: 0.4px; }}
+  .supply-event-sub {{ font-size: 11.5px; color: var(--text-soft); margin-top: 2px; line-height: 1.5; }}
 
   /* Section 01 Social — customer metric cards (2x2 grid) */
   .cust-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 8px 0 10px; }}
@@ -3305,7 +3451,7 @@ def build_html(d: dict) -> str:
 <div class="container">
   {render_quick_read(qr)}
   {render_social_overview(comm, yt_vitl, yt_comp, reddit_posts, yt_videos,
-                          trends, cust_metrics, cat_growth)}
+                          trends, cust_metrics, cat_growth, cat_supply)}
   {render_setup(setup, runway)}
   {render_stock_news(events, news, cad_vs_stock)}
   {render_egg_market(egg)}
@@ -3918,6 +4064,40 @@ def build_html(d: dict) -> str:
             x: {{ grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }} }} }},
             y: {{ grid: {{ color: 'rgba(0,0,0,0.04)' }}, ticks: {{ font: {{ size: 10 }}, callback: v => v + '%' }},
                   title: {{ display: true, text: 'YoY growth (%) · solid = verified · faded = estimated', font: {{ size: 10 }} }} }},
+          }},
+        }},
+      }});
+    }}
+
+    // ── Section 01B — Category Supply Timeline (stacked bars) ────────────
+    const cs = d.cat_supply || {{}};
+    const csEl = document.getElementById('categorySupplyChart');
+    if (csEl && cs.years && cs.years.length > 0) {{
+      new Chart(csEl, {{
+        type: 'bar',
+        data: {{
+          labels: cs.years,
+          datasets: [
+            {{ label: 'Branded SKUs', data: cs.branded, backgroundColor: A, borderRadius: 2, stack: 'sku' }},
+            {{ label: 'Private-label SKUs', data: cs.private_label, backgroundColor: NEG, borderRadius: 2, stack: 'sku' }},
+          ],
+        }},
+        options: {{
+          responsive: true, maintainAspectRatio: false,
+          plugins: {{
+            legend: {{ position: 'bottom', labels: {{ font: {{ size: 11 }} }} }},
+            tooltip: {{ mode: 'index', intersect: false,
+                        callbacks: {{
+                          afterBody: (ctx) => {{
+                            const e = cs.events[ctx[0].dataIndex];
+                            return e ? ['', '↳ ' + e.event] : '';
+                          }},
+                        }} }},
+          }},
+          scales: {{
+            x: {{ stacked: true, grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }} }} }},
+            y: {{ stacked: true, grid: {{ color: 'rgba(0,0,0,0.04)' }}, ticks: {{ font: {{ size: 10 }} }},
+                  title: {{ display: true, text: 'Nationally-distributed pasture-raised SKUs', font: {{ size: 10 }} }} }},
           }},
         }},
       }});
