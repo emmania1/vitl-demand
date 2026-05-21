@@ -38,6 +38,8 @@ refresh-data:
 	$(PY) scripts/fetch_hpai.py
 	@echo "── youtube (skipped if YOUTUBE_API_KEY missing) ─────"
 	$(PY) scripts/fetch_youtube.py || echo "  [warn] youtube fetcher failed — continuing"
+	@echo "── google trends — premium egg category ─────────────"
+	$(PY) scripts/fetch_google_trends.py || echo "  [warn] google trends fetcher failed — continuing"
 	@echo "── compute correlations (no external fetch) ─────────"
 	$(PY) scripts/compute_correlations.py
 	@echo "── regenerate dashboard ─────────────────────────────"

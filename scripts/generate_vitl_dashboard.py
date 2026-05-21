@@ -135,6 +135,10 @@ def load_all() -> dict:
         # pass-8 additions — actual content feeds (titles + URLs, not just counts)
         "reddit_posts":       safe_read(DATA_DIR / "reddit_posts_recent.csv"),
         "youtube_videos":     safe_read(DATA_DIR / "youtube_recent_videos.csv"),
+        # pass-9 additions — premium-egg category demand
+        "google_trends":      safe_read(DATA_DIR / "google_trends_category_weekly.csv"),
+        "customer_metrics":   safe_read(DATA_DIR / "customer_metrics.csv"),
+        "category_growth":    safe_read(DATA_DIR / "category_growth.csv"),
     }
 
 
@@ -927,6 +931,50 @@ def compute_sov_sentiment(d: dict) -> dict:
     return {"weeks": weeks, "brands": brands, "totals": totals}
 
 
+def compute_google_trends(d: dict) -> dict:
+    """Section 01 Category — 4-term Google Trends weekly comparison."""
+    df = d["google_trends"]
+    if df.empty: return {"weeks": [], "terms": {}, "latest_summary": {}}
+    df = df.copy().sort_values(["week", "term"])
+    weeks = sorted(df["week"].astype(str).unique().tolist())
+    terms = {}
+    for term in df["term"].unique():
+        sub = df[df["term"] == term].set_index("week")["interest"].reindex(weeks, fill_value=0)
+        terms[str(term)] = sub.astype(int).tolist()
+    # Latest week snapshot — values per term
+    if weeks:
+        latest_week = weeks[-1]
+        latest = (df[df["week"] == latest_week]
+                  .set_index("term")["interest"].astype(int).to_dict())
+        latest_summary = {"week": latest_week, "values": latest}
+    else:
+        latest_summary = {"week": "", "values": {}}
+    return {"weeks": weeks, "terms": terms, "latest_summary": latest_summary}
+
+
+def compute_customer_metrics(d: dict) -> list:
+    df = d["customer_metrics"]
+    if df.empty: return []
+    return [{
+        "metric": str(r["metric"]),
+        "latest_value": str(r["latest_value"]),
+        "latest_period": str(r["latest_period"]),
+        "source_quote": str(r.get("source_quote", "")),
+        "kind": str(r.get("kind", "neutral")).lower(),
+    } for _, r in df.iterrows()]
+
+
+def compute_category_growth(d: dict) -> dict:
+    df = d["category_growth"]
+    if df.empty: return {"quarters": [], "vitl": [], "category": []}
+    df = df.copy()
+    return {
+        "quarters": df["quarter"].astype(str).tolist(),
+        "vitl":     df["vitl_yoy_pct"].astype(float).round(1).tolist(),
+        "category": df["category_yoy_pct"].astype(float).round(1).tolist(),
+    }
+
+
 def compute_reddit_posts(d: dict) -> list:
     """Latest 30 Vital Farms posts/comments with title or body excerpt + URL + sentiment."""
     df = d["reddit_posts"]
@@ -1694,8 +1742,144 @@ def _render_youtube_feed(videos: list) -> str:
     return '<div class="feed-list">' + "".join(items) + '</div>'
 
 
+def _render_category_panels(trends: dict, cust_metrics: list, cat_growth: dict) -> str:
+    """Subsection 1B — Category Demand & Customer Mix (3 panels)."""
+    # ── Panel A: Google Trends 4-term comparison ──────────────────────────
+    latest = trends.get("latest_summary", {}).get("values", {}) or {}
+    latest_week = trends.get("latest_summary", {}).get("week", "")
+    if latest:
+        # Rank the 4 terms in the latest week
+        ranked = sorted(latest.items(), key=lambda kv: -kv[1])
+        top_term, top_val = ranked[0]
+        # Direction read: compare last value vs 12-mo trailing average
+        terms_data = trends.get("terms", {})
+        pas_series = terms_data.get("pasture raised eggs", [])
+        if len(pas_series) >= 52:
+            recent_avg = sum(pas_series[-12:]) / 12
+            trailing_avg = sum(pas_series[-52:-12]) / 40 if len(pas_series) >= 52 else recent_avg
+            pas_trend = ("rising vs 12mo trailing" if recent_avg > trailing_avg * 1.1
+                          else "flat vs 12mo trailing" if abs(recent_avg - trailing_avg) < trailing_avg * 0.1
+                          else "falling vs 12mo trailing")
+        else:
+            pas_trend = "limited history"
+        # Conclusion-first take
+        pasture = latest.get("pasture raised eggs", 0)
+        organic = latest.get("organic eggs", 0)
+        cagefree = latest.get("cage free eggs", 0)
+        regen = latest.get("regenerative eggs", 0)
+        if pasture > 0:
+            pas_share = round(pasture / max(pasture + organic + cagefree, 1) * 100, 0)
+        else:
+            pas_share = 0
+        trends_meaning = (
+            f"<strong>\"Pasture raised eggs\" sits at {pasture}</strong> on the 0-100 search-interest "
+            f"scale (vs organic {organic}, cage-free {cagefree}, regenerative {regen}). "
+            f"The pasture-raised category is <strong>{pas_trend}</strong> — "
+            + ("the premium-egg category itself is still expanding · bull thesis confirms"
+               if "rising" in pas_trend else
+               "the premium-egg category isn't growing structurally · VITL has to win on share, not category lift"
+               if "falling" in pas_trend else
+               "the category is steady · VITL recovery depends on within-category share, not category tailwind") + "."
+        )
+    else:
+        trends_meaning = (
+            "Google Trends data not yet loaded. Once populated, this shows whether the "
+            "premium-egg category itself is growing — if yes, bull thesis gets a tailwind; "
+            "if flat or falling, VITL has to win on share, not category lift."
+        )
+
+    # ── Panel B: 4 customer-metric stat cards ─────────────────────────────
+    metric_cards = ""
+    if cust_metrics:
+        KIND_BG = {"pos": ("#e1f0dc", "#2a5a30"),
+                   "watch": ("#fdefc9", "#8a6b10"),
+                   "neg": ("#f8e2dc", "#b34738"),
+                   "neutral": ("#eee7d6", "#6a6553")}
+        for m in cust_metrics:
+            bg, fg = KIND_BG.get(m["kind"], KIND_BG["neutral"])
+            metric_cards += f"""
+<div class="cust-card">
+  <div class="cust-label">{m['metric']}</div>
+  <div class="cust-big">{m['latest_value']}</div>
+  <div class="cust-period">{m['latest_period']} · <span class="badge" style="background:{bg};color:{fg}">{m['kind']}</span></div>
+  <div class="cust-quote">"{m['source_quote']}"</div>
+</div>"""
+
+    # ── Panel C: VITL vs Category growth bars ─────────────────────────────
+    cat_take = ""
+    if cat_growth.get("quarters") and cat_growth.get("vitl") and cat_growth.get("category"):
+        v_latest = cat_growth["vitl"][-1]; c_latest = cat_growth["category"][-1]
+        diff = v_latest - c_latest
+        if diff > 1:
+            cat_meaning = (
+                f"VITL is growing <strong>{v_latest:.1f}%</strong> vs the pasture-raised category at "
+                f"<strong>{c_latest:.1f}%</strong> — <strong>VITL is gaining share</strong> of the "
+                f"category it dominates. That's the bull case in one chart: the brand is converting "
+                f"category growth into more than its fair share."
+            )
+        elif diff < -1:
+            cat_meaning = (
+                f"VITL growing <strong>{v_latest:.1f}%</strong> vs the category at "
+                f"<strong>{c_latest:.1f}%</strong> — <strong>VITL is losing share</strong> of the "
+                f"category. The {abs(diff):.1f}pt gap is going to private label or smaller "
+                f"premium-egg competitors. Watch this number narrow as the ERP recovery completes; "
+                f"if it widens, brand thesis is in real trouble."
+            )
+        else:
+            cat_meaning = (
+                f"VITL and the category are growing roughly in line ({v_latest:.1f}% vs {c_latest:.1f}%) "
+                f"— VITL is holding share. Neither gaining nor losing; the bet here is on category "
+                f"acceleration, not share migration."
+            )
+        cat_take = data_take(meaning=cat_meaning)
+
+    return f"""
+<div class="subsection-header">
+  <div class="subsection-eyebrow">1B · CATEGORY DEMAND &amp; CUSTOMER MIX</div>
+  <div class="subsection-title">Is the premium-egg category itself growing? Are existing customers staying loyal?</div>
+</div>
+
+{chart_card("categoryTrendsChart",
+            "Premium Egg Category — Search Demand Trend",
+            "Google Trends weekly interest, 4 premium-egg terms compared on one normalized scale. The category-level question that sits underneath the VITL question.",
+            "Google Trends · pytrends · US-only · 0-100 relative interest scale (terms comparable to each other within window).",
+            READS_DIR / "brand_health_take.md",
+            y_axis_label="Search interest (0-100, indexed within window across the 4 terms)",
+            height_class="big",
+            dynamic_take=data_take(meaning=trends_meaning))}
+
+<div class="chart-card">
+  <div class="chart-title-row">
+    <h3>What Management Has Said About Customer Mix</h3>
+    <div class="chart-subtitle">Four numbers management discloses every quarter — the closest thing to a recurring-vs-new customer view without licensed scanner data.</div>
+  </div>
+  <div class="cust-grid">{metric_cards if metric_cards else '<div class="placeholder">No customer metrics loaded.</div>'}</div>
+  <div class="source-caption"><strong>Source:</strong> Quarterly earnings call disclosures · hand-curated in <code>data/customer_metrics.csv</code> · updated each print.</div>
+  {data_take(meaning=(
+      "<strong>Brand awareness rising (+800bps), household penetration growing (+2M YoY), "
+      "existing buyers loyal (+2% buy rate)</strong> — three out of four green. "
+      "<strong>New-trial % is the watchpoint:</strong> down from 55% to 50% means the "
+      "premium price gap is hurting acquisition at the top of the funnel, even as the base "
+      "stays intact. Watch the trial % the next two prints — that's where the price-gap "
+      "damage will show up first if it's structural."
+  ))}
+  {refresh_footer(DATA_DIR / "customer_metrics.csv")}
+</div>
+
+{chart_card("categoryGrowthChart",
+            "Is VITL Gaining or Losing Share of Its Own Category?",
+            "Side-by-side quarterly bars: VITL revenue YoY % vs pasture-raised category volume YoY %. If VITL > category = gaining share. If VITL < category = losing share.",
+            "VITL revenue from quarterly prints · category growth from management commentary (\"category +32% YTD\" per May 7 call). Hand-curated in data/category_growth.csv.",
+            READS_DIR / "tdp_vs_revenue_take.md",
+            y_axis_label="YoY growth (%)",
+            height_class="big",
+            dynamic_take=cat_take)}
+"""
+
+
 def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
-                            reddit_posts: list, yt_videos: list) -> str:
+                            reddit_posts: list, yt_videos: list,
+                            trends: dict, cust_metrics: list, cat_growth: dict) -> str:
     """Section 01 — Social Signal Overview (NEW).
 
     Three subsections: Reddit, YouTube, Controversy. Promoted from old
@@ -1809,6 +1993,7 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
 
     reddit_feed_html = _render_reddit_feed(reddit_posts)
     youtube_feed_html = _render_youtube_feed(yt_videos)
+    category_section_html = _render_category_panels(trends, cust_metrics, cat_growth)
 
     yt_competitor_present = any(any(v) for v in yt_brands.values())
     yt_competitor_empty_card = ""
@@ -1857,8 +2042,10 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
   {refresh_footer(DATA_DIR / "reddit_posts_recent.csv")}
 </div>
 
+{category_section_html}
+
 <div class="subsection-header">
-  <div class="subsection-eyebrow">1B · WHAT YOUTUBE IS SAYING</div>
+  <div class="subsection-eyebrow">1C · WHAT YOUTUBE IS SAYING</div>
   <div class="subsection-title">Creator mindshare across long-form content</div>
 </div>
 
@@ -1892,7 +2079,7 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
 </div>
 
 <div class="subsection-header">
-  <div class="subsection-eyebrow">1C · THE SEED-OIL CONTROVERSY</div>
+  <div class="subsection-eyebrow">1D · THE SEED-OIL CONTROVERSY</div>
   <div class="subsection-title">Did the January 2026 backlash actually stick?</div>
 </div>
 
@@ -2452,6 +2639,9 @@ def build_html(d: dict) -> str:
     yt_comp = compute_youtube_competitors(d)
     reddit_posts = compute_reddit_posts(d)
     yt_videos = compute_youtube_videos(d)
+    trends = compute_google_trends(d)
+    cust_metrics = compute_customer_metrics(d)
+    cat_growth = compute_category_growth(d)
     brand_aware = compute_brand_awareness(d)
     tdp     = compute_tdp_vs_revenue(d)
     op_rec  = compute_operating_recovery(d)
@@ -2476,6 +2666,8 @@ def build_html(d: dict) -> str:
         "sov_sentiment":  sov_sentiment,
         "yt_vitl":        yt_vitl,
         "yt_comp":        yt_comp,
+        "trends":         trends,
+        "cat_growth":     cat_growth,
         "brand_aware":    brand_aware,
         "tdp":            tdp,
         "op_rec":         op_rec,
@@ -2688,6 +2880,20 @@ def build_html(d: dict) -> str:
   .corr-interp-block p {{ font-size: 12.5px; color: var(--text-soft); line-height: 1.65; margin-bottom: 8px; }}
   .corr-interp-block strong {{ color: var(--text); font-weight: 700; }}
 
+  /* Section 01 Social — customer metric cards (2x2 grid) */
+  .cust-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 8px 0 10px; }}
+  @media (max-width: 720px) {{ .cust-grid {{ grid-template-columns: 1fr; }} }}
+  .cust-card {{ background: var(--surface2); border: 1px solid var(--border);
+                border-left: 4px solid var(--accent); border-radius: 8px;
+                padding: 14px 18px; }}
+  .cust-label {{ font-size: 10.5px; font-weight: 700; color: var(--muted);
+                 text-transform: uppercase; letter-spacing: 0.7px; }}
+  .cust-big {{ font-size: 30px; font-weight: 700; letter-spacing: -0.5px;
+               color: var(--accent); margin: 6px 0 4px; line-height: 1.1; }}
+  .cust-period {{ font-size: 11.5px; color: var(--text-soft); margin-bottom: 6px; }}
+  .cust-quote {{ font-size: 11.5px; color: var(--muted); font-style: italic; line-height: 1.45;
+                 padding-top: 6px; border-top: 1px dashed var(--border); }}
+
   /* Section 01 Social — feed widgets (Reddit posts + YouTube videos) */
   .feed-list {{ display: flex; flex-direction: column; gap: 8px; max-height: 520px;
                 overflow-y: auto; padding-right: 6px; }}
@@ -2896,7 +3102,8 @@ def build_html(d: dict) -> str:
 
 <div class="container">
   {render_quick_read(qr)}
-  {render_social_overview(comm, yt_vitl, yt_comp, reddit_posts, yt_videos)}
+  {render_social_overview(comm, yt_vitl, yt_comp, reddit_posts, yt_videos,
+                          trends, cust_metrics, cat_growth)}
   {render_setup(setup, runway)}
   {render_stock_news(events, news, cad_vs_stock)}
   {render_egg_market(egg)}
@@ -3460,6 +3667,66 @@ def build_html(d: dict) -> str:
       }} else {{
         ycEl.parentElement.innerHTML = '<div class="placeholder">YouTube competitor data not yet fetched · set <code>YOUTUBE_API_KEY</code> in <code>.env</code> and run <code>make refresh-data</code></div>';
       }}
+    }}
+
+    // ── Section 01B — Category Demand (Trends + Category Growth) ─────────
+    const tr = d.trends || {{}};
+    const trEl = document.getElementById('categoryTrendsChart');
+    if (trEl && tr.weeks && tr.weeks.length > 0) {{
+      const TERM_COLORS = {{
+        "pasture raised eggs": A,
+        "organic eggs":        A2,
+        "cage free eggs":      BLUE,
+        "regenerative eggs":   PURPLE,
+      }};
+      const trDatasets = Object.keys(tr.terms).map(t => ({{
+        label: t, data: tr.terms[t],
+        borderColor: TERM_COLORS[t] || '#999',
+        backgroundColor: 'transparent',
+        borderWidth: t === 'pasture raised eggs' ? 2.4 : 1.6,
+        tension: 0.25, pointRadius: 0,
+      }}));
+      new Chart(trEl, {{
+        type: 'line',
+        data: {{ labels: tr.weeks, datasets: trDatasets }},
+        options: {{
+          responsive: true, maintainAspectRatio: false,
+          plugins: {{ legend: {{ position: 'bottom', labels: {{ font: {{ size: 11 }} }} }},
+                      tooltip: {{ mode: 'index', intersect: false }} }},
+          scales: {{
+            x: {{ grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }}, maxTicksLimit: 12, autoSkip: true }} }},
+            y: {{ grid: {{ color: 'rgba(0,0,0,0.04)' }}, ticks: {{ font: {{ size: 10 }} }},
+                  title: {{ display: true, text: 'Search interest (0-100, comparable across terms)', font: {{ size: 10 }} }} }},
+          }},
+        }},
+      }});
+    }} else if (trEl) {{
+      trEl.parentElement.innerHTML = '<div class="placeholder">Google Trends data not yet loaded · run <code>fetch_google_trends.py</code></div>';
+    }}
+
+    const cg = d.cat_growth || {{}};
+    const cgEl = document.getElementById('categoryGrowthChart');
+    if (cgEl && cg.quarters && cg.quarters.length > 0) {{
+      new Chart(cgEl, {{
+        type: 'bar',
+        data: {{
+          labels: cg.quarters,
+          datasets: [
+            {{ label: 'VITL YoY %', data: cg.vitl, backgroundColor: A, borderRadius: 3 }},
+            {{ label: 'Pasture-raised category YoY %', data: cg.category, backgroundColor: A2, borderRadius: 3 }},
+          ],
+        }},
+        options: {{
+          responsive: true, maintainAspectRatio: false,
+          plugins: {{ legend: {{ position: 'bottom', labels: {{ font: {{ size: 11 }} }} }},
+                      tooltip: {{ mode: 'index', intersect: false }} }},
+          scales: {{
+            x: {{ grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }} }} }},
+            y: {{ grid: {{ color: 'rgba(0,0,0,0.04)' }}, ticks: {{ font: {{ size: 10 }}, callback: v => v + '%' }},
+                  title: {{ display: true, text: 'YoY growth (%)', font: {{ size: 10 }} }} }},
+          }},
+        }},
+      }});
     }}
 
     new Chart(document.getElementById('linoleicChart'), {{
