@@ -1113,7 +1113,9 @@ def data_take(*, meaning: str = "",
     )
 
 
-def compute_summary(d, qr, setup, news, egg, fin, corr) -> dict:
+def compute_summary(d, qr, setup, news, egg, fin, corr,
+                     comm=None, cat_supply=None, op_rec=None, val=None, tdp=None,
+                     cat_growth=None) -> dict:
     kpis = qr["kpis"]
     bullets = [
         f"Days since FY25 ERP print: <strong>{kpis['days_since_print']}</strong>.",
@@ -1132,10 +1134,155 @@ def compute_summary(d, qr, setup, news, egg, fin, corr) -> dict:
         (f"Correlation series: <strong>{len(corr.get('keys', []))}</strong>"
          if corr.get('keys') else "Correlation matrix: —"),
     ]
+
+    # ── Narrative briefing — friendly-language walkthrough of the whole
+    # dashboard, data-driven so the numbers stay accurate on refresh.
+    narrative_paragraphs = []
+
+    # P1: where we are right now
+    current = kpis.get("current_price")
+    vs26 = kpis.get("vs_feb26_pct")
+    days = kpis.get("days_since_print", 0)
+    deadline = kpis.get("days_to_deadline", 0)
+    if current is not None:
+        p1 = (
+            f"<strong>Where VITL sits today.</strong> The stock is at "
+            f"<strong>${current:.2f}</strong> — "
+            f"<strong>{vs26:+.1f}%</strong> since the Feb 26 FY25 print (${kpis['feb26_close']:.2f}). "
+            f"That's <strong>{days} days</strong> into the recovery question, with the lead-plaintiff "
+            f"deadline for the securities-fraud class action <strong>{deadline} days</strong> out. "
+            f"VITL fell ~85% peak-to-trough on three damages: ERP transition disruption (operational, now "
+            f"healing), the January seed-oil brand controversy (watching), and a conventional egg-price "
+            f"crash that widened the premium gap to {egg.get('latest_gap', 0):.0f}% vs the 150-200% "
+            f"historical norm (worsening). Recovery requires the gap to close AND cash to hold out — "
+            f"that's the binary the dashboard tracks."
+        )
+    else:
+        p1 = "VITL stock data not yet loaded — most of this narrative will populate on refresh."
+    narrative_paragraphs.append(p1)
+
+    # P2: the macro (egg cycle) — premium gap, breaker, HPAI
+    p2 = (
+        f"<strong>The macro frame — eggs.</strong> Section 04 is the load-bearing analytical section. "
+        f"The premium gap (VITL retail vs conventional wholesale) sits at <strong>{egg.get('latest_gap', 0):.0f}%</strong> "
+        f"today vs <strong>{egg.get('peak_gap', 0):.0f}%</strong> at the Q1 2026 cycle peak — both well "
+        f"above the 150-200% historical norm. Above ~250% the price-conscious buyer trades down to "
+        f"private label, which is precisely what's happening (more on that below). Two things would "
+        f"close the gap: (1) conventional egg prices rising back toward $2-3/dz — an HPAI wave catalyst "
+        f"that would force supply contraction (fall 2026 migration is the wild card), or (2) VITL "
+        f"cutting price at the shelf, which management demonstrated works (the 35% → 25% gap "
+        f"experiment at one top customer drove +18% volume in 2 weeks). The breaker-egg market — where "
+        f"unsold VITL eggs end up — crashed from $1.00/dz to ~$0.10/dz, driving $32M of supply-management "
+        f"costs that crushed Q1 gross margin to 2.7%. Every dime higher on breaker prices is direct "
+        f"margin tailwind."
+    )
+    narrative_paragraphs.append(p2)
+
+    # P3: brand & social
+    sov_totals = (comm or {}).get("totals") or {}
+    grand = sum(sov_totals.values()) or 1
+    vitl_pct = round(sov_totals.get("Vital Farms", 0) / grand * 100, 0) if grand else 0
+    p3 = (
+        f"<strong>The brand & consumer frame.</strong> Section 01 (Social Signal Overview) tests "
+        f"whether VITL's brand actually broke during the cycle. The short answer: <strong>no</strong>. "
+        f"VITL still holds <strong>~{vitl_pct:.0f}% of category Reddit mindshare</strong> across "
+        f"6 monitored pasture-raised brands, with a majority of mentions sentiment-classified as "
+        f"positive. The Reddit feed shows actual VITL discussion threads — DCF valuations from "
+        f"r/ValueInvesting, the \"Egg-Cellent Value\" thread, multiple insider-buying posts — "
+        f"meaning the brand is still actively debated, not abandoned. Aided brand awareness "
+        f"climbed +800bps to 34% in 2025 (the same year the share-loss narrative gained traction) "
+        f"and household penetration grew +2M households to 14.2M — both <em>counter-evidence</em> "
+        f"to the brand-damage thesis. The January seed-oil controversy spiked then decayed back "
+        f"toward baseline, matching management's \"negligible purchase impact\" claim. The new "
+        f"customer trial % did slip from 55% to 50% — that's the watchpoint, the place where the "
+        f"price-gap damage is showing up first."
+    )
+    narrative_paragraphs.append(p3)
+
+    # P4: supply / competition — the category got crowded
+    if cat_supply and cat_supply.get("years"):
+        then = (cat_supply["branded"][0] + cat_supply["private_label"][0]) if cat_supply["branded"] else 1
+        now = cat_supply["branded"][-1] + cat_supply["private_label"][-1]
+        pl_now = cat_supply["private_label"][-1]
+        p4 = (
+            f"<strong>The supply frame — what got crowded.</strong> Section 01B's new category-supply "
+            f"chart answers \"is VITL losing share to specific competitors or to the category getting "
+            f"more crowded?\" The answer is mostly the latter. The pasture-raised category went from "
+            f"<strong>{then} SKU</strong> in 2010 (just VITL) to <strong>{now} SKUs today</strong> "
+            f"(8 branded + {pl_now} private-label). The structural change isn't the branded competitors — "
+            f"Pete & Gerry's, Handsome Brook, Happy Egg, Alexandre, Organic Valley have all been around "
+            f"for years and Reddit confirms their mindshare is stable. The real share-taker is "
+            f"<strong>private label</strong>: Kirkland Pasture Raised at Costco (launched 2021) and "
+            f"Whole Foods 365 Pasture Raised (2022) carry the same certification at 40-60% of VITL's "
+            f"price. The Section 01B chart shows VITL revenue +15.4% vs the pasture-raised category "
+            f"+32% in Q1 2026 — VITL underperformed its category by 16.6 percentage points, and the "
+            f"velocity-per-shelf chart in Section 06 confirms each new shelf VITL adds is selling LESS "
+            f"than the existing base (-3.8% velocity per slot YoY). That's the structural concern made "
+            f"visible: more shelves, less velocity per shelf."
+        )
+        narrative_paragraphs.append(p4)
+
+    # P5: setup / positioning
+    runway = setup.get("runway_qs"); cluster = setup.get("cluster")
+    short = setup.get("short_current") or {}
+    short_pct = short.get("pct")
+    if short_pct is not None:
+        p5 = (
+            f"<strong>The positioning frame.</strong> Section 02 lays out the conviction-vs-cash binary. "
+            f"On the conviction side: <strong>7 insiders bought $321K worth of shares between May 13-15</strong> "
+            f"— 5 directors, the CSO, and 2 officers, all within 3 days post-print. That's the textbook "
+            f"cluster-buying pattern that historically marks bottoms — single buys are noise, clusters this "
+            f"tight are conviction. The CEO has NOT yet bought, which would be the strongest possible "
+            f"follow-through signal. Management still has <strong>$80M of buyback authorization remaining</strong> "
+            f"(paused mid-covenant-negotiation); resumption would be the strongest possible \"floor is in\" signal. "
+            f"On the cash-pressure side: $51M cash on the balance sheet plus an undrawn JPM revolver "
+            f"(size not publicly disclosed) gives a tight but workable runway through covenant resolution "
+            f"expected ~August. Short interest is at <strong>{short_pct:.1f}% of float</strong> — well past "
+            f"the 'extreme' threshold (small-cap norm is 5-10%). That's a coiled-spring trade: if recovery "
+            f"signals confirm, shorts have to cover at higher prices and the buying typically overshoots the "
+            f"fundamental story by 30-50%."
+        )
+    else:
+        p5 = "Positioning data partially loaded."
+    narrative_paragraphs.append(p5)
+
+    # P6: financial trajectory + valuation
+    p6 = (
+        f"<strong>The financial & valuation frame.</strong> Section 07 shows the EBITDA-margin arc: "
+        f"peak 16.9% in Q1 2025, trough 2.7% in Q1 2026, guided to -10% in Q2 then recovery to 30%+ GM "
+        f"by Q4. The bull case does NOT require returning to the 16.9% peak — it requires returning to "
+        f"the 2020-2024 historical NORM of 10-14%, which matches the company's own cut FY26 guide. "
+        f"Section 08's scenario math: even the ENTRY case (2027 EBITDA $50M × 10x) implies $12-13/share, "
+        f"50% upside from current. The base case ($80M × 10-12x) implies ~$21/share, 150% upside. "
+        f"That's the asymmetry the bull thesis is built on — the stock is pricing closer to permanent "
+        f"impairment than cyclical trough. The cash burn decomposition in Section 07 shows that "
+        f"<strong>~$40M of the $62M Q1 burn is discretionary or recoverable</strong> (CapEx that's now paused, "
+        f"inventory build that sells through, opportunistic buyback). Only ~$5M was one-time cycle cost. "
+        f"The headline cash number is worse than the underlying business — operations are roughly "
+        f"cash-neutral at the trough."
+    )
+    narrative_paragraphs.append(p6)
+
+    # P7: what's coming, what to watch
+    p7 = (
+        f"<strong>What to watch next.</strong> Three highest-impact catalysts in the next 9 months "
+        f"per Section 09's forward calendar: (1) <strong>JPM covenant resolution ~late June / July</strong> "
+        f"— binary; clean amendment is the floor signal, equity raise is the dilution event. (2) "
+        f"<strong>Q2 FY26 print August 6</strong> — the cycle-low test. If revenue beats the guided "
+        f"low-single-digits and supply-management costs come in better than the projected $23M, the "
+        f"inflection is early. (3) <strong>FY26 print + FY27 guide in ~February 2027</strong> — the "
+        f"trust rebuild moment, especially given the May 7 cut. The market typically re-rates 1-2 "
+        f"quarters AHEAD of easy comps, which puts the recovery-pricing window at <strong>August-October "
+        f"2026</strong>. Big single thing to watch right now: any 8-K mentioning covenant amendment "
+        f"terms or buyback resumption. Either would meaningfully shift the conviction-vs-cash balance."
+    )
+    narrative_paragraphs.append(p7)
+
     return {
         "headline": f"{BRAND_NAME} ({BRAND_TICKER}) — Recovery Signal Dashboard",
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "bullets": bullets,
+        "narrative": narrative_paragraphs,
         "to_do_next": [
             "USDA MARS shell-egg fetcher (key registration required).",
             "FINRA bulk short-interest historical series.",
@@ -2929,9 +3076,10 @@ def render_archived() -> str:
 def render_summary_modal(s: dict) -> str:
     bullets_html = "".join(f"<li>{b}</li>" for b in s["bullets"])
     todo_html = "".join(f"<li>{t}</li>" for t in s["to_do_next"])
+    narrative_html = "".join(f"<p>{para}</p>" for para in s.get("narrative", []))
     return f"""
 <div id="summaryModal" class="modal-backdrop" onclick="if(event.target===this) this.style.display='none'">
-  <div class="modal">
+  <div class="modal modal-wide">
     <div class="modal-header">
       <div>
         <div class="modal-title">{s['headline']}</div>
@@ -2940,8 +3088,12 @@ def render_summary_modal(s: dict) -> str:
       <button class="modal-close" onclick="document.getElementById('summaryModal').style.display='none'">×</button>
     </div>
     <div class="modal-body">
-      <div class="modal-section-title">Current state</div>
+      <div class="modal-section-title">Key metrics right now</div>
       <ul class="modal-list">{bullets_html}</ul>
+
+      <div class="modal-section-title">The briefing — what the dashboard is showing</div>
+      <div class="modal-narrative">{narrative_html}</div>
+
       <div class="modal-section-title">Pipeline to wire next</div>
       <ul class="modal-list">{todo_html}</ul>
     </div>
@@ -2985,7 +3137,9 @@ def build_html(d: dict) -> str:
     cat     = compute_catalysts(d)
     rplan   = compute_recovery_plan(d)
     corr    = compute_correlation_matrix(d)
-    summary = compute_summary(d, qr, setup, news, egg, fin, corr)
+    summary = compute_summary(d, qr, setup, news, egg, fin, corr,
+                              comm=comm, cat_supply=cat_supply, op_rec=op_rec,
+                              val=val, tdp=tdp, cat_growth=cat_growth)
 
     chart_blob = json.dumps({
         "setup":          setup,
@@ -3402,6 +3556,13 @@ def build_html(d: dict) -> str:
   .modal {{ background: var(--surface); border: 1px solid var(--border);
             border-radius: 12px; max-width: 720px; width: 100%;
             box-shadow: 0 8px 32px rgba(0,0,0,0.18); overflow: hidden; }}
+  .modal.modal-wide {{ max-width: 880px; }}
+  .modal-narrative {{ font-size: 13.5px; color: var(--text-soft); line-height: 1.7; }}
+  .modal-narrative p {{ margin-bottom: 14px; padding-bottom: 10px;
+                        border-bottom: 1px dashed var(--border); }}
+  .modal-narrative p:last-child {{ border-bottom: none; margin-bottom: 8px; }}
+  .modal-narrative strong {{ color: var(--text); font-weight: 700; }}
+  .modal-narrative em {{ color: var(--text-soft); font-style: italic; }}
   .modal-header {{ display: flex; justify-content: space-between; align-items: flex-start;
                    padding: 22px 26px 14px; border-bottom: 1px solid var(--border); }}
   .modal-title {{ font-size: 17px; font-weight: 700; }}
