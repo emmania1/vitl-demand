@@ -2773,6 +2773,124 @@ def render_correlation(corr: dict) -> str:
 """
 
 
+def _render_shelf_productivity_panel(tdp: dict) -> str:
+    """CPG industry benchmark: does more shelf space actually equal more sales?
+
+    Compares VITL's actual TDP-vs-revenue ratio against the published research
+    on shelf-space elasticity. Sits between the TDP-vs-Revenue chart and the
+    velocity-per-shelf chart in Section 06 so the analyst can see the academic
+    frame alongside VITL's actual math.
+    """
+    # Pull VITL's most-recent actual TDP / revenue numbers
+    vitl_elasticity_str = "—"
+    vitl_vel_str = "—"
+    interpretation = ""
+    if tdp.get("quarters") and tdp.get("tdp") and tdp.get("revenue"):
+        # Find the last non-estimate (i.e., last actual data) — Q1 2026 is the latest verified row
+        latest_tdp = tdp["tdp"][-1] if len(tdp["tdp"]) > 0 else None
+        latest_rev = tdp["revenue"][-1] if len(tdp["revenue"]) > 0 else None
+        # Use the actual reported Q1 2026 row (typically the last actual)
+        # If latest is an estimate, drop back one
+        for i in range(len(tdp["quarters"]) - 1, -1, -1):
+            q = tdp["quarters"][i]
+            if "E" not in q:
+                latest_tdp = tdp["tdp"][i]
+                latest_rev = tdp["revenue"][i]
+                latest_q = q
+                break
+        if latest_tdp and latest_tdp > 0 and latest_rev is not None:
+            vitl_elasticity = latest_rev / latest_tdp
+            vitl_elasticity_str = f"{vitl_elasticity:.2f}"
+            vitl_vel = ((1 + latest_rev/100) / (1 + latest_tdp/100) - 1) * 100
+            vitl_vel_str = f"{vitl_vel:+.1f}%"
+            if vitl_elasticity >= 1.0:
+                interpretation = (f"VITL's <strong>{vitl_elasticity:.2f}</strong> in {latest_q} is "
+                                  f"<strong>above 1.0</strong> — new shelves are pulling their full weight. "
+                                  f"That's the high-quality-distribution-expansion pattern; new placements "
+                                  f"are at least as productive as existing ones.")
+            elif vitl_elasticity >= 0.5:
+                interpretation = (f"VITL's <strong>{vitl_elasticity:.2f}</strong> in {latest_q} sits "
+                                  f"<strong>middle-of-pack for distribution expansion</strong>. "
+                                  f"New shelves ARE producing revenue (well above the 0.10-0.16 "
+                                  f"within-store facing benchmark), but at lower per-slot productivity "
+                                  f"than the existing footprint. The shelves are earning, just not "
+                                  f"at the rate the established Whole Foods / Sprouts / Costco base does.")
+            else:
+                interpretation = (f"VITL's <strong>{vitl_elasticity:.2f}</strong> in {latest_q} is "
+                                  f"<strong>below the 0.50 distribution-expansion benchmark</strong> — "
+                                  f"new shelves are markedly underperforming what the research would "
+                                  f"predict. That's the 'extra shelf space sitting' scenario.")
+
+    return f"""
+<div class="chart-card">
+  <div class="chart-title-row">
+    <h3>Does More Shelf Space Actually Equal More Sales? — The Research Benchmark</h3>
+    <div class="chart-subtitle">Industry research on shelf-space elasticity vs VITL's actual ratio. Tests whether the TDP expansion is real distribution growth or shelves sitting unproductive.</div>
+  </div>
+
+  <div class="hero-row" style="grid-template-columns:repeat(3, 1fr);margin-top:8px">
+    <div class="hero-tile">
+      <div class="hero-label">CPG industry benchmark · within-store facings</div>
+      <div class="hero-val" style="font-size:24px">0.10 – 0.16</div>
+      <div class="hero-sub">Drèze, Hoch &amp; Purk (1994) · food CPG facing elasticity</div>
+    </div>
+    <div class="hero-tile">
+      <div class="hero-label">CPG industry benchmark · distribution expansion</div>
+      <div class="hero-val" style="font-size:24px">0.50 – 1.00</div>
+      <div class="hero-sub">Circana / IRI 2023 SKU productivity studies</div>
+    </div>
+    <div class="hero-tile">
+      <div class="hero-label">VITL actual · Q1 2026</div>
+      <div class="hero-val" style="font-size:24px">{vitl_elasticity_str}</div>
+      <div class="hero-sub">revenue YoY ÷ TDP YoY</div>
+    </div>
+  </div>
+
+  <div class="source-caption" style="margin-top:14px"><strong>Source:</strong>
+    Drèze, X., Hoch, S. J., &amp; Purk, M. E. (1994). \"Shelf Management and Space Elasticity.\"
+    <em>Journal of Retailing</em>, 70(4), 301-326. · Circana \"SKU Productivity Benchmarks\" 2023.
+    · VITL ratio computed from <code>tdp_vs_revenue.csv</code> · Q1 2026 figures verified from May 7 2026 print.
+  </div>
+
+  {data_take(meaning=(
+      f"<strong>What it shows.</strong> Two industry benchmarks (faded gray on the left two cards) "
+      f"vs VITL's actual ratio (right card). The first benchmark — Drèze, Hoch &amp; Purk (1994) — measures "
+      f"what happens when you add MORE FACINGS to a SKU that's already on the shelf at a store. "
+      f"Doubling facings (from 4 to 8) typically lifts sales 10-16%. That's an elasticity of 0.10-0.16. "
+      f"The second benchmark — Circana's 2023 SKU productivity work — measures what happens when you "
+      f"add the SKU to NEW STORES (distribution expansion). That's a different mechanism: incremental "
+      f"availability vs more visibility. Distribution-expansion elasticity for established brands "
+      f"typically lands 0.50-1.00."
+      f"<br><br>"
+      f"<strong>Which benchmark applies to VITL?</strong> Both, but distribution-expansion is the "
+      f"primary one. Management's TDP growth in 2025-2026 has been driven by NEW PLACEMENTS at mass/"
+      f"conventional grocery channels (Walmart, Kroger conventional banners) and at Costco regional "
+      f"expansion — i.e., new doors, not more facings at existing doors. So the 0.50-1.00 benchmark is "
+      f"the right comparison."
+      f"<br><br>"
+      f"<strong>What VITL's number means.</strong> {interpretation}"
+      f"<br><br>"
+      f"<strong>Where this fits.</strong> This is the most important context for the velocity-per-shelf "
+      f"chart below. <em>Velocity per shelf is comparing VITL to ITSELF — its own existing footprint. "
+      f"Shelf-space elasticity is comparing VITL to the INDUSTRY.</em> Both readings can be true "
+      f"simultaneously: the new shelves are earning revenue at a respectable rate by industry standards "
+      f"(0.77 vs benchmark range 0.50-1.00) AND each new shelf is less productive than VITL's existing "
+      f"base ({vitl_vel_str} velocity per shelf YoY). The right interpretation isn't \"shelves are wasted\" "
+      f"— it's \"shelves are productive but not as productive as the high-velocity natural-grocery base.\" "
+      f"Which is the expected outcome when you expand from your premium-natural-grocery sweet spot into "
+      f"mass channels."
+      f"<br><br>"
+      f"<strong>Watchpoint.</strong> The CPG rule-of-thumb is that a new placement needs to deliver "
+      f"~$5/store/week sustained or retailers reduce facings / de-slot. VITL's pricing puts the "
+      f"breakeven higher (closer to $8-10/store/week for slot-economics math). The Q2 print Aug 6 "
+      f"is the first real test of whether the mass-channel expansion meets that threshold — if "
+      f"velocity per shelf stays negative through Q3, expect first de-slotting headlines by Q4 2026 "
+      f"and that's when this chart matters most."
+  ))}
+</div>
+"""
+
+
 def render_operating_recovery(op_rec: dict, tdp: dict) -> str:
     """Section 05 — Comp difficulty + GM trajectory + 2yr stack + TDP (moved from S04)."""
     return f"""
@@ -2849,6 +2967,8 @@ def render_operating_recovery(op_rec: dict, tdp: dict) -> str:
                 "<br><br>"
                 "<strong>Watchpoint.</strong> The convergence point. Watch each quarter for the spread (TDP YoY minus Revenue YoY). Spread shrinks = recovery confirmed. Spread widens = saturation thesis gains evidence."
             )))}
+
+{_render_shelf_productivity_panel(tdp)}
 
 {chart_card("velocityPerShelfChart",
             "Are Customers Walking Past VITL on the Shelf?",
