@@ -2456,23 +2456,13 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
   <div class="subsection-title">Mindshare, sentiment, and the actual conversation</div>
 </div>
 
-{chart_card("brandSovChart",
-            "Who Are People Talking About — VITL vs Competitors",
-            "Weekly Reddit mentions across 6 pasture-raised brands, split by sentiment. Volume = mindshare; positive % = brand health.",
-            "Arctic Shift title + body + comments sweep per brand. Dictionary-based sentiment classifier on body text (pos AND no neg → positive · neg AND no pos → negative · both/neither → neutral). Brands with 0 hits shown as flat zero-stacks.",
-            READS_DIR / "brand_sov_take.md",
-            y_axis_label="Weekly mentions stacked by sentiment (positive / neutral / negative)",
-            height_class="big",
-            dynamic_take=sov_take)}
-{brand_stat_row}
-
 <div class="chart-card">
   <div class="chart-title-row">
     <h3>What's Being Posted About VITL — Most Recent 30</h3>
-    <div class="chart-subtitle">Actual titles + bodies linked back to the source. The signal lives here — what people are <em>saying</em>, not just volume counts.</div>
+    <div class="chart-subtitle">Actual titles + bodies linked back to the source. Premium-egg brand-vs-brand chatter is sparse (~21 total mentions across 6 brands over 36mo) — so we kill volume-counting charts and keep the actual content feed.</div>
   </div>
   {reddit_feed_html}
-  <div class="source-caption"><strong>Source:</strong> Arctic Shift via <code>fetch_reddit_arctic.py</code> · post titles for posts, first 200 chars for comments · sentiment from dictionary classifier on body text.</div>
+  <div class="source-caption"><strong>Source:</strong> Arctic Shift via <code>fetch_reddit_arctic.py</code> · post titles for posts, first 200 chars for comments · sentiment from dictionary classifier on body text. <strong>Note:</strong> a Brand Share-of-Voice chart and the related sentiment-split stat cards were removed because total mention count is only ~21 across 6 brands over 3 years — the same sparseness problem that killed the subreddit table. The feed below is the analytically reliable cut.</div>
   {refresh_footer(DATA_DIR / "reddit_posts_recent.csv")}
 </div>
 
@@ -2507,23 +2497,57 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
   <div class="subsection-title">Did the January 2026 backlash actually stick?</div>
 </div>
 
-{chart_card("linoleicChart",
-            "Did the Seed-Oil Drama Stick Around?",
-            "Weekly chatter about VITL + linoleic / PUFA / seed-oil keywords. Jan 2026 spike — has it decayed back to baseline?",
-            "Reddit from r/seedoilfree + r/Carnivore + r/nutrition (Arctic Shift). YouTube from queries \"vital farms linoleic/PUFA/seed oil\" (data/youtube_linoleic_monthly.csv).",
-            READS_DIR / "linoleic_take.md",
-            y_axis_label="Reddit = weekly posts (left), YouTube = monthly videos (right, normalized)",
-            height_class="big",
-            dynamic_take=lin_take)}
+<div class="chart-card">
+  <div class="chart-title-row">
+    <h3>The Seed-Oil Controversy — Where the Live Data Sits</h3>
+    <div class="chart-subtitle">Two charts (Linoleic decay + Controversy vs Stock) were removed — they were rendering off seed data, not real fetches. This text panel tracks the qualitative story until Arctic Shift's comments endpoint becomes reliable enough to chart.</div>
+  </div>
 
-{chart_card("controversyVsStockChart",
-            "Did the Controversy Actually Move the Stock?",
-            "Two lines (both indexed to 100). If they track each other, the brand thesis took real damage. If they decouple, it was social-media noise.",
-            "Reddit mentions from linoleic_decay_weekly.csv. Stock from yfinance.",
-            READS_DIR / "controversy_vs_stock_take.md",
-            y_axis_label="Both series indexed to 100 at start",
-            height_class="big",
-            dynamic_take=cvs_take)}
+  <div class="callout-strip" style="margin:8px 0 12px">
+    <strong>What happened.</strong> In January 2026, a TikTok creator argued that Vital Farms hens — like all
+    layer hens — are fed corn and soy, which contain linoleic acid (a PUFA). The argument: VITL's premium
+    pricing is unjustified because the eggs aren't meaningfully different from conventional on the fatty-acid
+    profile that seed-oil-avoiders care about. The narrative spread through r/seedoilfree, r/Carnivore,
+    r/nutrition, and adjacent wellness corners of TikTok for about 3 weeks before fading.
+  </div>
+
+  <div class="callout-strip" style="margin:8px 0 12px;border-left-color:var(--accent2);background:rgba(244,196,48,0.07)">
+    <strong>Management response (May 7 2026 call).</strong> CEO Russell Diez-Canseco directly addressed it:
+    <em>"We've seen this commentary and tracked purchase behavior carefully — the impact on existing customer
+    purchase rate has been negligible. Our buy-rate among existing households was up 2% in Q1, which would
+    not be consistent with a real brand-damage event."</em> The Q1 +2% buy-rate is the load-bearing data
+    point on the bull-case side of this debate.
+  </div>
+
+  <div class="callout-strip" style="margin:8px 0 12px;border-left-color:var(--neg);background:rgba(201,93,74,0.06)">
+    <strong>Why we removed the charts.</strong> The Linoleic Decay and Controversy-vs-Stock charts were
+    rendering off a seeded dataset (52 rows hand-drawn to show a "spike-then-decay" curve). Arctic Shift's
+    comments-search endpoint is rate-limited too aggressively to pull this combination of keywords reliably
+    (\"vital farms\" AND \"linoleic\"/\"PUFA\"/\"seed oil\"), so the live fetcher returned only 1 row of real data.
+    Seeded charts are misleading — they look like findings when they're our own narrative shape. Same call as
+    cutting the Brand SoV chart above.
+  </div>
+
+  <div class="callout-strip" style="margin:8px 0 0;border-left-color:var(--accent);background:rgba(46,90,60,0.06)">
+    <strong>How to actually track this going forward.</strong>
+    <ul style="margin:6px 0 0 18px;font-size:12.5px;color:var(--text-soft);line-height:1.6">
+      <li><strong>Recent Posts Feed (above)</strong> — any post mentioning seed-oil, PUFA, or linoleic in the
+        VITL feed shows up there with title + sentiment + link. That's the live signal.</li>
+      <li><strong>News Coverage section (Section 03)</strong> — the news fetcher already tracks any article
+        mentioning Vital Farms + health/controversy. The topic-mix doughnut shows whether "health" topic
+        share is rising — that would be the news-side evidence.</li>
+      <li><strong>YouTube feed (1C)</strong> — videos discussing the seed-oil debate show up there with
+        view counts. The Section 1C feed captured the "Vital Farms Great Eggs, Terrible Alignment" video
+        among others.</li>
+      <li><strong>New-customer trial % in the Customer Mix cards (1B)</strong> — this is the closest thing
+        to a purchase-impact signal. Already tracking; will update every quarter.</li>
+    </ul>
+  </div>
+  <div class="source-caption" style="margin-top:12px"><strong>Source:</strong> Public TikTok / Reddit
+    commentary archive; Q1 2026 earnings call transcript (May 7 2026); management commentary on buy-rate.
+    Live chart-based tracking pending Arctic Shift's comments-search API becoming reliable enough.
+  </div>
+</div>
 """
 
 
@@ -4179,7 +4203,10 @@ def build_html(d: dict) -> str:
         fill: false, stack: 'overlay',
       }});
     }});
-    if (sovDatasets.length > 0 && sovS.weeks.length > 0) {{
+    // Brand SoV chart was removed in pass 14 (only 21 mentions across 6 brands /
+    // 36mo — same sparseness as the subreddit table). Canvas no longer in DOM
+    // so the chart call is guarded.
+    if (sovDatasets.length > 0 && sovS.weeks.length > 0 && document.getElementById('brandSovChart')) {{
       new Chart(document.getElementById('brandSovChart'), {{
         type: 'bar',
         data: {{ labels: sovS.weeks, datasets: sovDatasets }},
@@ -4384,26 +4411,30 @@ def build_html(d: dict) -> str:
       }});
     }}
 
-    new Chart(document.getElementById('linoleicChart'), {{
-      type: 'line', data: {{ labels: lin.weeks, datasets: linDatasets }},
-      options: {{
-        responsive: true, maintainAspectRatio: false,
-        plugins: {{
-          legend: {{ position: 'bottom', labels: {{ font: {{ size: 11 }} }} }},
-          refLine: {{ refs: [{{ date: '2026-01-15', color: NEG, width: 1.5, dash: [3,3], label: 'Jan 15 TikTok peak' }}] }},
+    // Linoleic + Controversy-vs-Stock charts removed in pass 14 (seeded data,
+    // not live Reddit). Canvas elements no longer exist in DOM — guards below.
+    if (document.getElementById('linoleicChart')) {{
+      new Chart(document.getElementById('linoleicChart'), {{
+        type: 'line', data: {{ labels: lin.weeks, datasets: linDatasets }},
+        options: {{
+          responsive: true, maintainAspectRatio: false,
+          plugins: {{
+            legend: {{ position: 'bottom', labels: {{ font: {{ size: 11 }} }} }},
+            refLine: {{ refs: [{{ date: '2026-01-15', color: NEG, width: 1.5, dash: [3,3], label: 'Jan 15 TikTok peak' }}] }},
+          }},
+          scales: {{
+            x: {{ grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }}, maxTicksLimit: 8, autoSkip: true }} }},
+            yL: {{ position: 'left', grid: {{ color: 'rgba(0,0,0,0.04)' }}, ticks: {{ font: {{ size: 10 }} }},
+                   title: {{ display: true, text: 'Reddit posts/wk', font: {{ size: 10 }} }} }},
+            yR: {{ position: 'right', grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }} }},
+                   title: {{ display: true, text: 'YouTube videos (scaled)', font: {{ size: 10 }} }} }},
+          }},
         }},
-        scales: {{
-          x: {{ grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }}, maxTicksLimit: 8, autoSkip: true }} }},
-          yL: {{ position: 'left', grid: {{ color: 'rgba(0,0,0,0.04)' }}, ticks: {{ font: {{ size: 10 }} }},
-                 title: {{ display: true, text: 'Reddit posts/wk', font: {{ size: 10 }} }} }},
-          yR: {{ position: 'right', grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }} }},
-                 title: {{ display: true, text: 'YouTube videos (scaled)', font: {{ size: 10 }} }} }},
-        }},
-      }},
-    }});
+      }});
+    }}
 
     const cvss = d.comm.controversy_vs_stock;
-    new Chart(document.getElementById('controversyVsStockChart'), {{
+    if (document.getElementById('controversyVsStockChart')) new Chart(document.getElementById('controversyVsStockChart'), {{
       type: 'line',
       data: {{
         labels: cvss.weeks,
