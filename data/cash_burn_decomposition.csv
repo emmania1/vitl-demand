@@ -1,5 +1,10 @@
-quarter,operations_m,capex_m,supply_mgmt_m,buyback_m,other_m,total_m,note
-Q4 2025,5,12,8,0,3,28,Pre-ERP-blast burn
-Q1 2026,18,18,15,8,3,62,$62M actual — peak burn
-Q2 2026E,12,8,23,0,2,45,Guided · Crossroads paused
-Q3-Q4 2026E,18,10,12,0,3,43,Per H2 guidance midpoints
+period,kind,line_item,amount_m,category,note
+Q1 2026,actual,CapEx,20,DISCRETIONARY,Vital Crossroads now paused
+Q1 2026,actual,Inventory build,24,RECOVERABLE,Sells through as macro turns
+Q1 2026,actual,Supply mgmt,5,ONE-TIME,Q1 portion of $32M FY26 cost
+Q1 2026,actual,Buyback,20,DISCRETIONARY,Management chose to deploy mid-cycle
+Q1 2026,actual,Operations,0,STRUCTURAL,Core ops roughly cash-neutral
+Q2-Q4 2026E,projected,Remaining CapEx,50,DISCRETIONARY,Management has authority to pause further
+Q2-Q4 2026E,projected,Q2 supply mgmt,23,COMMITTED,Per Q1 call guidance
+Q2-Q4 2026E,projected,Butter exit (cash release),-15,RECOVERABLE,Net inflow from inventory liquidation
+Q2-Q4 2026E,projected,Operations,0,STRUCTURAL,Held flat

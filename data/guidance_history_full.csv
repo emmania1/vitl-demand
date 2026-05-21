@@ -1,0 +1,27 @@
+period,metric,management_guided,actual,delta,delta_kind,miss_type,note
+Q4 2020,Revenue,n/a,$214M FY20,n/a,n/a,n/a,IPO Aug 2020 — partial guidance history
+Q1 2021,Revenue,n/a,$67M,n/a,n/a,n/a,
+Q2 2021,Revenue,n/a,$72M,n/a,n/a,n/a,
+Q3 2021,Revenue,n/a,$70M,n/a,n/a,n/a,
+Q4 2021,Revenue,n/a,$66M (FY21 $275M),n/a,n/a,n/a,
+Q1 2022,Revenue,n/a,$76M,n/a,n/a,n/a,
+Q2 2022,Revenue,n/a,$87M,n/a,n/a,n/a,
+Q3 2022,Revenue,n/a,$92M,n/a,n/a,n/a,
+Q4 2022,Revenue,n/a,$107M (FY22 $362M),n/a,n/a,n/a,
+Q1 2023,Revenue,n/a,$120M,n/a,n/a,n/a,
+Q2 2023,Revenue,n/a,$120M,n/a,n/a,n/a,
+Q3 2023,Revenue,$118M-$122M est,$118M,in-line,inline,n/a,
+Q4 2023,Revenue,n/a,$128M (FY23 $471M),n/a,n/a,n/a,
+Q1 2024,Revenue,~$140M consensus,$148M,+$8M,beat,n/a,Distribution gains
+Q2 2024,Revenue,~$147M consensus,$147M,in-line,inline,n/a,
+Q3 2024,Revenue,~$150M consensus,$156M,+$6M,beat,n/a,
+Q4 2024,Revenue,~$160M consensus,$165M (FY24 $616M),+$5M,beat,n/a,
+Q1 2025,Revenue,~$175M consensus,$163M,-$12M,miss,Operational,Mgmt blamed Easter timing
+Q2 2025,Revenue,Raised FY25 to $740M+,$162M (in-line),in-line,inline,n/a,
+Q3 2025,Revenue,Raised FY25 to ≥$775M,$175M,beat,beat,n/a,Set up Feb 26 miss
+Q4 2025,Revenue,At least $775M FY25,$759.4M,-$15.6M,miss,ERP,FY25 print missed own raised guide
+Q4 2025,EPS,$0.39 consensus,$0.35,-$0.04,miss,ERP,
+Q1 2026,Revenue,More measured growth (Q4 call),$187M (+15.4%),beat range,beat,n/a,Beat but FY guide cut
+Q1 2026,Gross Margin,Implied 33-35% from prior,28.3%,-500bps,miss,Cycle,Supply mgmt + price compression
+FY 2026,Revenue,$900-920M (Feb 26 call),Cut to $775-800M (May 7),-$130M midpt,cut,Cycle,Two-cut sequence
+FY 2026,EBITDA,$105-115M (Feb 26 call),Cut to $0-10M (May 7),gutted,cut,Cycle,Margin reset

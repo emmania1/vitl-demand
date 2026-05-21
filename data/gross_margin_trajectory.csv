@@ -1,0 +1,11 @@
+quarter,gross_margin_pct,kind,note
+Q1 2025,38.5,actual,Peak GM
+Q2 2025,37.0,actual,
+Q3 2025,37.7,actual,
+Q4 2025,35.0,actual,ERP residual
+Q1 2026,28.3,actual,Trough · supply mgmt + ERP
+Q2 2026E,27.0,estimate,Cycle low per mgmt
+Q3 2026E,30.0,estimate,Recovery starts
+Q4 2026E,30.5,estimate,Back to 30s per mgmt
+FY 2027E low,33.0,estimate,Mgmt guided range low
+FY 2027E high,35.0,estimate,Mgmt guided range high

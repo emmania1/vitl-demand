@@ -1,0 +1,13 @@
+quarter,revenue_yoy_pct,kind,comp_difficulty,note
+Q1 2025,25.0,actual,easy,Pre-disruption
+Q2 2025,22.0,actual,medium,
+Q3 2025,20.0,actual,medium,ERP residual starts
+Q4 2025,16.0,actual,hard,ERP shipment disruption
+Q1 2026,15.4,actual,hard,Print +15.4% but missed
+Q2 2026E,8.0,estimate,hard,Guided low-single digits
+Q3 2026E,5.0,estimate,medium,Mid-cycle
+Q4 2026E,12.0,estimate,easy,First easy comp (vs ERP base)
+Q1 2027E,18.0,estimate,easy,Price-gap base
+Q2 2027E,15.0,estimate,easy,Price-gap base
+Q3 2027E,12.0,estimate,medium,Normalizing
+Q4 2027E,10.0,estimate,medium,Normalizing

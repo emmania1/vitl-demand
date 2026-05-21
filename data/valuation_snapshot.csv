@@ -1,0 +1,9 @@
+kind,label,value,range_low,range_high,note
+multiple,EV/Sales (current),0.4,0.4,3.2,Low end of 3yr range
+multiple,EV/EBITDA (trailing),4.2,4.0,14.0,Trailing reasonable
+multiple,EV/EBITDA (FY26E),35.0,,, Distorted by trough EBITDA — meaningless
+multiple,P/E (trailing),7.96,8.0,30.0,Cheapest since 2022
+scenario,Entry case,12.5,,,2027 EBITDA $50M × 10x
+scenario,Base case,21.0,,,2027 EBITDA $80M × 10-12x
+scenario,Upside case,31.5,,,2027 EBITDA $100M × 12-15x
+current,Current price,8.48,,,May 20 2026 close

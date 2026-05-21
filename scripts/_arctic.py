@@ -136,6 +136,43 @@ def fetch_one(
     return rows
 
 
+POSITIVE_KEYWORDS = [
+    "love", "best", "worth", "trust", "quality", "favorite", "recommend",
+    "switched to", "won't go back", "taste better", "healthier", "amazing",
+    "great", "fresh", "beautiful",
+]
+NEGATIVE_KEYWORDS = [
+    "expensive", "overpriced", "scam", "seed oil", "pufa", "linoleic",
+    "marketing", "ripoff", "not worth", "fake", "misleading", "gross",
+    "awful", "sketchy", "woke",
+]
+_POS_RES = None
+_NEG_RES = None
+
+
+def _compile_keyword_regexes():
+    """Lazy-compile word-boundary regexes for sentiment keywords."""
+    global _POS_RES, _NEG_RES
+    import re as _re
+    if _POS_RES is None:
+        _POS_RES = [_re.compile(rf"\b{_re.escape(k)}\b", _re.IGNORECASE) for k in POSITIVE_KEYWORDS]
+        _NEG_RES = [_re.compile(rf"\b{_re.escape(k)}\b", _re.IGNORECASE) for k in NEGATIVE_KEYWORDS]
+
+
+def classify_sentiment(text: str | None) -> str:
+    """Dictionary-based sentiment. pos AND no neg → positive · neg AND no pos →
+    negative · both or neither → neutral. Body=None → neutral (title-only rows
+    don't have enough signal)."""
+    if not text: return "neutral"
+    _compile_keyword_regexes()
+    s = str(text)
+    pos_hit = any(r.search(s) for r in _POS_RES)
+    neg_hit = any(r.search(s) for r in _NEG_RES)
+    if pos_hit and not neg_hit: return "positive"
+    if neg_hit and not pos_hit: return "negative"
+    return "neutral"
+
+
 def apply_filters(rows: list[dict], min_body_chars: int = 30,
                   word_boundary_query: str | None = None) -> list[dict]:
     """Apply the standard noise filters to a row list:
@@ -165,20 +202,33 @@ def apply_filters(rows: list[dict], min_body_chars: int = 30,
 
 
 def weekly_counts(rows: list[dict]) -> pd.DataFrame:
-    """Roll the row-level list into (week, subreddit, query, post_count).
-    Dedupe on (subreddit, item_id, kind) so a post and a comment with the
-    same id (rare but possible across endpoints) don't collapse."""
+    """Roll row-level list → (week, subreddit, query, post_count + sentiment split).
+
+    Each row is tagged with sentiment (positive/negative/neutral) via the
+    dictionary classifier in classify_sentiment(). Weekly aggregate splits
+    the total post_count into pos_count / neg_count / neu_count columns so
+    downstream consumers can render a stacked sentiment chart without
+    re-classifying."""
     if not rows:
-        return pd.DataFrame(columns=["week", "subreddit", "query", "post_count"])
+        return pd.DataFrame(columns=["week", "subreddit", "query", "post_count",
+                                     "pos_count", "neg_count", "neu_count"])
     df = pd.DataFrame(rows)
     if "kind" not in df.columns:
         df["kind"] = "post"
     df = df.drop_duplicates(subset=["subreddit", "item_id", "kind"])
     df["dt"] = pd.to_datetime(df["created_utc"], unit="s", utc=True)
     df["week"] = df["dt"].dt.to_period("W-SUN").dt.end_time.dt.strftime("%Y-%m-%d")
-    weekly = (
-        df.groupby(["week", "subreddit", "query"])
-        .size()
-        .reset_index(name="post_count")
-    )
-    return weekly.sort_values(["week", "subreddit", "query"]).reset_index(drop=True)
+    if "sentiment" not in df.columns:
+        df["sentiment"] = df["body"].apply(classify_sentiment) if "body" in df.columns else "neutral"
+
+    total = df.groupby(["week", "subreddit", "query"]).size().reset_index(name="post_count")
+    pos = df[df["sentiment"] == "positive"].groupby(["week", "subreddit", "query"]).size().reset_index(name="pos_count")
+    neg = df[df["sentiment"] == "negative"].groupby(["week", "subreddit", "query"]).size().reset_index(name="neg_count")
+    neu = df[df["sentiment"] == "neutral"].groupby(["week", "subreddit", "query"]).size().reset_index(name="neu_count")
+
+    out = total.merge(pos, on=["week", "subreddit", "query"], how="left") \
+               .merge(neg, on=["week", "subreddit", "query"], how="left") \
+               .merge(neu, on=["week", "subreddit", "query"], how="left")
+    for c in ("pos_count", "neg_count", "neu_count"):
+        out[c] = out[c].fillna(0).astype(int)
+    return out.sort_values(["week", "subreddit", "query"]).reset_index(drop=True)

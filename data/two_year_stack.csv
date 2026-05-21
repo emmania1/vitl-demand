@@ -1,0 +1,13 @@
+quarter,current_yoy_pct,prior_yoy_pct,two_yr_stack,note
+Q1 2025,25.0,30.0,55.0,Pre-disruption peak stack
+Q2 2025,22.0,32.0,54.0,
+Q3 2025,20.0,28.0,48.0,
+Q4 2025,16.0,28.0,44.0,Stack drops as disruption hits
+Q1 2026,15.4,25.0,40.4,
+Q2 2026E,8.0,22.0,30.0,Stack continues falling
+Q3 2026E,5.0,20.0,25.0,
+Q4 2026E,12.0,16.0,28.0,First inflection (stack stops falling)
+Q1 2027E,18.0,15.4,33.4,Stack rising = stabilization
+Q2 2027E,15.0,8.0,23.0,Stack lower because Q2 26 weak base
+Q3 2027E,12.0,5.0,17.0,
+Q4 2027E,10.0,12.0,22.0,

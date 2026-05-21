@@ -120,6 +120,16 @@ def load_all() -> dict:
         "cash_burn_decomp":   safe_read(DATA_DIR / "cash_burn_decomposition.csv"),
         "tdp_vs_revenue":     safe_read(DATA_DIR / "tdp_vs_revenue.csv"),
         "correlations":       safe_read(DATA_DIR / "correlations.csv"),
+        # pass-6 additions
+        "brand_awareness":    safe_read(DATA_DIR / "brand_awareness.csv"),
+        "qrev_growth":        safe_read(DATA_DIR / "quarterly_revenue_growth.csv"),
+        "gm_trajectory":      safe_read(DATA_DIR / "gross_margin_trajectory.csv"),
+        "two_yr_stack":       safe_read(DATA_DIR / "two_year_stack.csv"),
+        "guidance_full":      safe_read(DATA_DIR / "guidance_history_full.csv"),
+        "valuation":          safe_read(DATA_DIR / "valuation_snapshot.csv"),
+        "catalysts":          safe_read(DATA_DIR / "forward_catalysts.csv"),
+        "recovery_plan":      safe_read(DATA_DIR / "recovery_plan_status.csv"),
+        "hpai_cumulative":    safe_read(DATA_DIR / "hpai_cumulative.csv"),
     }
 
 
@@ -233,12 +243,21 @@ def compute_setup(d: dict) -> dict:
                 "label": r["quarter_label"], "value": (None if tbd else float(val)),
                 "tbd": bool(tbd), "note": r.get("note", "") or "",
             })
-    # Projected Q2 burn estimate — bake in the guided ~$45M from cash_burn_decomp
+    # Projected Q2 burn estimate — sum projected line items from cash_burn_decomp
+    # (new schema: period × line_item × amount_m × category; old: quarter × total_m)
     projected_q2 = None
     if not d["cash_burn_decomp"].empty:
-        q2 = d["cash_burn_decomp"][d["cash_burn_decomp"]["quarter"].astype(str).str.contains("Q2 2026", na=False)]
-        if not q2.empty:
-            projected_q2 = float(q2.iloc[0]["total_m"])
+        cbd = d["cash_burn_decomp"]
+        if "period" in cbd.columns and "amount_m" in cbd.columns:
+            # New categorized schema — sum projected Q2-Q4 26 items
+            q2 = cbd[cbd["period"].astype(str).str.contains("Q2", na=False)]
+            if not q2.empty:
+                projected_q2 = float(q2["amount_m"].sum())
+        elif "quarter" in cbd.columns and "total_m" in cbd.columns:
+            # Old schema fallback
+            q2 = cbd[cbd["quarter"].astype(str).str.contains("Q2 2026", na=False)]
+            if not q2.empty:
+                projected_q2 = float(q2.iloc[0]["total_m"])
     cash_change = None
     if len(cash_rows) >= 2 and not cash_rows[0]["tbd"] and not cash_rows[1]["tbd"]:
         cash_change = cash_rows[1]["value"] - cash_rows[0]["value"]
@@ -644,16 +663,12 @@ def compute_financial_history(d: dict) -> dict:
         ebitda["kinds"]  = eh["kind"].astype(str).tolist()
 
     cbd = d["cash_burn_decomp"]
+    # New categorized schema: period × line_item × amount_m × category.
+    # The old aggregate-by-quarter chart isn't used anymore (Section 06 now
+    # uses compute_categorized_cash_burn instead); leave empty struct for
+    # backward compat with anything that still reads d.fin.cash_burn.
     cash_burn = {"quarters": [], "operations": [], "capex": [], "supply_mgmt": [],
                  "buyback": [], "other": [], "total": []}
-    if not cbd.empty:
-        cash_burn["quarters"]   = cbd["quarter"].astype(str).tolist()
-        cash_burn["operations"] = cbd["operations_m"].astype(float).tolist()
-        cash_burn["capex"]      = cbd["capex_m"].astype(float).tolist()
-        cash_burn["supply_mgmt"]= cbd["supply_mgmt_m"].astype(float).tolist()
-        cash_burn["buyback"]    = cbd["buyback_m"].astype(float).tolist()
-        cash_burn["other"]      = cbd["other_m"].astype(float).tolist()
-        cash_burn["total"]      = cbd["total_m"].astype(float).tolist()
 
     # Credibility (unchanged)
     cred_rows = []
@@ -684,6 +699,224 @@ def compute_correlation_matrix(d: dict) -> dict:
         cells[(row, col)] = {"corr": (None if pd.isna(val) else float(val)), "n": n}
     return {"keys": keys, "labels": labels,
             "cells": {f"{k[0]}|{k[1]}": v for k, v in cells.items()}}
+
+
+def compute_reaction_magnitude(d: dict) -> dict:
+    """Section 02 hero bar chart: every event's stock %-reaction on day."""
+    ev = d["events"]
+    if ev.empty: return {"events": []}
+    rows = []
+    for _, r in ev.iterrows():
+        rows.append({
+            "date": str(r["date"]),
+            "label": str(r.get("headline", ""))[:60],
+            "reaction_pct": (None if pd.isna(r.get("reaction_pct")) else float(r["reaction_pct"])),
+            "kind": str(r.get("reaction_kind", "flat")),
+        })
+    rows.sort(key=lambda x: x["date"])
+    return {"events": rows}
+
+
+def compute_hpai_cumulative(d: dict) -> dict:
+    df = d["hpai_cumulative"]
+    if df.empty: return {"months": [], "cumulative": []}
+    df = df.copy().sort_values("month")
+    return {
+        "months": df["month"].astype(str).tolist(),
+        "cumulative": df["cumulative_birds_m"].astype(float).round(1).tolist(),
+    }
+
+
+def compute_operating_recovery(d: dict) -> dict:
+    """Section 05 — TDP (moved here), Comp difficulty bars, GM trajectory, 2yr stack."""
+    out = {"tdp": {"quarters": [], "tdp": [], "revenue": []},
+           "comp": {"quarters": [], "growth": [], "comp_kinds": [], "kinds": []},
+           "gm":   {"quarters": [], "values": [], "kinds": []},
+           "stack": {"quarters": [], "current_yoy": [], "prior_yoy": [], "stack": []}}
+
+    if not d["tdp_vs_revenue"].empty:
+        t = d["tdp_vs_revenue"].copy()
+        out["tdp"]["quarters"] = t["quarter"].astype(str).tolist()
+        out["tdp"]["tdp"] = t["tdp_yoy_pct"].astype(float).round(1).tolist()
+        out["tdp"]["revenue"] = t["revenue_yoy_pct"].astype(float).round(1).tolist()
+
+    if not d["qrev_growth"].empty:
+        q = d["qrev_growth"].copy()
+        out["comp"]["quarters"]   = q["quarter"].astype(str).tolist()
+        out["comp"]["growth"]     = q["revenue_yoy_pct"].astype(float).round(1).tolist()
+        out["comp"]["comp_kinds"] = q["comp_difficulty"].astype(str).tolist()
+        out["comp"]["kinds"]      = q["kind"].astype(str).tolist()
+
+    if not d["gm_trajectory"].empty:
+        g = d["gm_trajectory"].copy()
+        out["gm"]["quarters"] = g["quarter"].astype(str).tolist()
+        out["gm"]["values"]   = g["gross_margin_pct"].astype(float).round(1).tolist()
+        out["gm"]["kinds"]    = g["kind"].astype(str).tolist()
+
+    if not d["two_yr_stack"].empty:
+        s = d["two_yr_stack"].copy()
+        out["stack"]["quarters"]    = s["quarter"].astype(str).tolist()
+        out["stack"]["current_yoy"] = s["current_yoy_pct"].astype(float).round(1).tolist()
+        out["stack"]["prior_yoy"]   = s["prior_yoy_pct"].astype(float).round(1).tolist()
+        out["stack"]["stack"]       = s["two_yr_stack"].astype(float).round(1).tolist()
+
+    return out
+
+
+def compute_full_credibility(d: dict) -> dict:
+    """Section 06 — 22-quarter scorecard from guidance_history_full.csv."""
+    g = d["guidance_full"]
+    if g.empty: return {"rows": [], "summary": {"beats": 0, "in_line": 0, "misses": 0, "cuts": 0, "na": 0}}
+    rows = []
+    counts = {"beats": 0, "in_line": 0, "misses": 0, "cuts": 0, "na": 0}
+    for _, r in g.iterrows():
+        kind = str(r.get("delta_kind", "")).lower()
+        rows.append({
+            "period": str(r["period"]),
+            "metric": str(r["metric"]),
+            "guided": str(r.get("management_guided", "n/a")),
+            "actual": str(r.get("actual", "n/a")),
+            "delta":  str(r.get("delta", "n/a")),
+            "delta_kind": kind,
+            "miss_type": str(r.get("miss_type", "n/a")),
+        })
+        if kind == "beat": counts["beats"] += 1
+        elif kind == "inline" or kind == "in-line": counts["in_line"] += 1
+        elif kind == "miss": counts["misses"] += 1
+        elif kind == "cut": counts["cuts"] += 1
+        else: counts["na"] += 1
+    return {"rows": rows, "summary": counts}
+
+
+def compute_categorized_cash_burn(d: dict) -> dict:
+    """Section 06 — Q1 actual vs FY26 projected with category flags."""
+    df = d["cash_burn_decomp"]
+    if df.empty: return {"actual": [], "projected": []}
+    out = {"actual": [], "projected": []}
+    for _, r in df.iterrows():
+        bucket = "actual" if str(r.get("kind", "")).lower() == "actual" else "projected"
+        out[bucket].append({
+            "line_item": str(r["line_item"]),
+            "amount_m":  float(r["amount_m"]),
+            "category":  str(r["category"]),
+            "note":      str(r.get("note", "")),
+        })
+    return out
+
+
+def compute_valuation(d: dict) -> dict:
+    df = d["valuation"]
+    if df.empty: return {"multiples": [], "scenarios": [], "current_price": None}
+    multiples = []; scenarios = []; current = None
+    for _, r in df.iterrows():
+        k = str(r["kind"]).lower()
+        if k == "multiple":
+            multiples.append({
+                "label": str(r["label"]), "value": float(r["value"]),
+                "range_low":  (None if pd.isna(r.get("range_low")) else float(r["range_low"])),
+                "range_high": (None if pd.isna(r.get("range_high")) else float(r["range_high"])),
+                "note": str(r.get("note", "")),
+            })
+        elif k == "scenario":
+            scenarios.append({
+                "label": str(r["label"]),
+                "implied_price": float(r["value"]),
+                "note": str(r.get("note", "")),
+            })
+        elif k == "current":
+            current = float(r["value"])
+    return {"multiples": multiples, "scenarios": scenarios, "current_price": current}
+
+
+def compute_catalysts(d: dict) -> dict:
+    df = d["catalysts"]
+    if df.empty: return {"rows": []}
+    rows = []
+    for _, r in df.iterrows():
+        rows.append({
+            "date": str(r["date"]), "date_kind": str(r.get("date_kind", "fixed")),
+            "event": str(r["event"]),
+            "tier": str(r["impact_tier"]).upper(),
+            "direction": str(r["direction"]).upper(),
+            "note": str(r.get("note", "")),
+        })
+    return {"rows": rows}
+
+
+def compute_recovery_plan(d: dict) -> dict:
+    df = d["recovery_plan"]
+    if df.empty: return {"rows": []}
+    rows = []
+    for _, r in df.iterrows():
+        rows.append({
+            "order": int(r.get("order", 0)),
+            "action": str(r["action"]),
+            "target": str(r["stated_target"]),
+            "status": str(r["status"]).upper(),
+            "confirmed": str(r.get("confirmed_in_financials", "")).upper(),
+            "note": str(r.get("note", "")),
+        })
+    return {"rows": rows}
+
+
+def compute_brand_awareness(d: dict) -> dict:
+    df = d["brand_awareness"]
+    if df.empty: return {"years": [], "values": []}
+    years = df["year"].astype(str).tolist()
+    vals = []
+    for v in df["aided_awareness_pct"]:
+        try:
+            vals.append(float(v) if not pd.isna(v) else None)
+        except (TypeError, ValueError):
+            vals.append(None)
+    return {"years": years, "values": vals}
+
+
+def compute_runway_math(setup: dict) -> dict:
+    """Computed display values for the Section 01 Runway card."""
+    current = setup.get("current_cash") or 51
+    q_burn = setup.get("q_burn") or 62
+    revolver = 100  # JPM undrawn per Q1 call commentary
+    liquidity = current + revolver
+    # FY26 remaining burn midpoint per guidance + projections (~$60-75M)
+    fy26_remaining_lo = 60; fy26_remaining_hi = 75
+    runway_yr_lo = round(liquidity / max(fy26_remaining_hi, 1), 1)
+    runway_yr_hi = round(liquidity / max(fy26_remaining_lo, 1), 1)
+    return {
+        "current_cash": current, "q_burn": q_burn, "revolver": revolver,
+        "liquidity": liquidity, "fy26_remaining_lo": fy26_remaining_lo,
+        "fy26_remaining_hi": fy26_remaining_hi,
+        "runway_yr_lo": runway_yr_lo, "runway_yr_hi": runway_yr_hi,
+    }
+
+
+def compute_sov_sentiment(d: dict) -> dict:
+    """Pos/Neg/Neu split per brand per week (Section 04 stacked sentiment)."""
+    cw = d["competitor_weekly"]
+    if cw.empty: return {"weeks": [], "brands": {}, "totals": {}}
+    has_sentiment = all(c in cw.columns for c in ("pos_count", "neg_count", "neu_count"))
+    weeks = sorted(cw["week"].astype(str).unique().tolist())
+    brands = {}
+    totals = {}
+    for brand in BRAND_SOV_ORDER:
+        bdf = cw[cw["brand"] == brand]
+        if bdf.empty:
+            brands[brand] = {"total": [0]*len(weeks), "pos": [0]*len(weeks),
+                              "neg": [0]*len(weeks), "neu": [0]*len(weeks)}
+            totals[brand] = {"total": 0, "pos": 0, "neg": 0, "neu": 0}
+            continue
+        total = bdf.set_index("week")["post_count"].reindex(weeks, fill_value=0).astype(int).tolist()
+        if has_sentiment:
+            pos = bdf.set_index("week")["pos_count"].reindex(weeks, fill_value=0).astype(int).tolist()
+            neg = bdf.set_index("week")["neg_count"].reindex(weeks, fill_value=0).astype(int).tolist()
+            neu = bdf.set_index("week")["neu_count"].reindex(weeks, fill_value=0).astype(int).tolist()
+        else:
+            # Fallback when CSV doesn't yet have sentiment columns
+            pos = [0]*len(weeks); neg = [0]*len(weeks); neu = total[:]
+        brands[brand] = {"total": total, "pos": pos, "neg": neg, "neu": neu}
+        totals[brand] = {"total": int(sum(total)), "pos": int(sum(pos)),
+                          "neg": int(sum(neg)), "neu": int(sum(neu))}
+    return {"weeks": weeks, "brands": brands, "totals": totals}
 
 
 def compute_summary(d, qr, setup, news, egg, fin, corr) -> dict:
@@ -889,26 +1122,11 @@ def render_quick_read(qr: dict) -> str:
 """
 
 
-def render_setup(setup: dict) -> str:
+def render_setup(setup: dict, runway: dict) -> str:
     cluster = setup.get("cluster")
     cluster_kpi = (f"{cluster['insiders']} insiders · ${cluster['total_value']:,.0f} "
                    f"cluster {cluster['start']}→{cluster['end']}"
                    if cluster else "no cluster detected")
-    cash_change = setup.get("cash_change")
-    cash_kpi = (f"${abs(cash_change):.0f}M burned in Q1" if cash_change is not None else "—")
-    runway_qs = setup.get("runway_qs"); projected_q2 = setup.get("projected_q2_burn")
-    runway_block = ""
-    if runway_qs is not None:
-        proj_line = (f' · Q2 guided ~${projected_q2:.0f}M → projected cash ~${setup["projected_cash"]:.0f}M'
-                     if projected_q2 is not None else "")
-        runway_block = (
-            f'<div class="runway-gauge">'
-            f'<div class="runway-headline">Implied runway: <strong>{runway_qs:.1f} quarters</strong> '
-            f'at Q1 burn rate</div>'
-            f'<div class="runway-sub">${setup["current_cash"]:.0f}M cash ÷ ${setup["q_burn"]:.0f}M/quarter burn'
-            f'{proj_line} · <em>$100M JPM revolver undrawn extends this; not modeled here</em></div>'
-            f'</div>'
-        )
 
     # Insider table
     insider_rows_html = ""
@@ -935,6 +1153,7 @@ def render_setup(setup: dict) -> str:
 
     buyback_md = load_markdown(READS_DIR / "buyback_status.md")
     setup_synth_md = load_markdown(READS_DIR / "setup_synthesis.md")
+    runway_md = load_markdown(READS_DIR / "runway_math.md")
 
     return f"""
 <div class="section-header" id="setup">
@@ -945,15 +1164,16 @@ def render_setup(setup: dict) -> str:
 
 <div class="setup-grid">
 
-  <div class="setup-card">
+  <div class="setup-card setup-runway">
     <div class="setup-card-header">
-      <div class="setup-card-title">Cash Position</div>
-      <div class="setup-kpi">{cash_kpi}</div>
+      <div class="setup-card-title">Runway Math {datestamp_chip(runway_md['datestamp'])}</div>
+      <div class="setup-kpi">~{runway['runway_yr_lo']}-{runway['runway_yr_hi']} years forward</div>
     </div>
-    <div class="chart-wrap" style="height:200px"><canvas id="cashChart"></canvas></div>
-    {runway_block}
-    <div class="setup-foot"><strong>What this shows:</strong> $113M cash at Dec 28 2025 → $51M at Mar 29 2026. Projected Q2 bar is lighter (TBD per Aug print).
-    <strong>What to watch:</strong> any 8-K disclosing revolver draw or covenant amendment terms.</div>
+    <div class="runway-big">~{runway['runway_yr_lo']}-{runway['runway_yr_hi']} <span class="runway-big-unit">years runway</span></div>
+    <div class="runway-line">${runway['current_cash']:.0f}M cash + ${runway['revolver']:.0f}M undrawn JPM revolver = <strong>${runway['liquidity']:.0f}M</strong> liquidity</div>
+    <div class="runway-line">FY26 implied remaining burn <strong>${runway['fy26_remaining_lo']}-{runway['fy26_remaining_hi']}M</strong> · projection to FY27 ~$60M/yr</div>
+    <div class="runway-line"><span class="badge badge-mid">JPM covenant talks ongoing</span> · net-leverage covenant 3.5x</div>
+    <div class="setup-foot"><strong>What to watch:</strong> any 8-K mentioning amendment terms. Clean amendment = the floor signal; equity raise = the dilution event.</div>
     {refresh_footer(DATA_DIR / "cash_position.csv")}
   </div>
 
@@ -962,8 +1182,9 @@ def render_setup(setup: dict) -> str:
       <div class="setup-card-title">Recent Insider Buying</div>
       <div class="setup-kpi">{cluster_kpi}</div>
     </div>
-    <div class="setup-explain"><strong>Why this matters:</strong> 7 insiders putting personal money in post-print is the strongest insider signal pattern — single buys are noise, clusters are conviction.</div>
+    <div class="setup-context">5 directors + CSO + 2 officers buying within 3 days post-print. <strong>Cluster pattern is the strongest insider signal shape in the literature</strong> — single buys are noise; this isn't.</div>
     {insider_table_html}
+    <div class="setup-foot"><strong>What to watch:</strong> any further buys on Form 4, especially from the CEO (Russell Diez-Canseco) who has not yet appeared in the cluster.</div>
     {refresh_footer(DATA_DIR / "insider_trades.csv")}
   </div>
 
@@ -972,8 +1193,9 @@ def render_setup(setup: dict) -> str:
       <div class="setup-card-title">Short Interest Trend</div>
       <div class="setup-kpi">{short_kpi}</div>
     </div>
+    <div class="setup-context">Small-cap norm 5-10%. 47.5% is extreme. But the tape is conflicted: <em>if this was out of the woods the stock would be up 90% not 9%</em>.</div>
     <div class="chart-wrap" style="height:200px"><canvas id="shortChart"></canvas></div>
-    <div class="setup-foot"><strong>What to watch:</strong> sustained cover (declining %) confirms recovery; holding at 40%+ says bears are still confident.</div>
+    <div class="setup-foot"><strong>What to watch:</strong> sustained cover (declining %) confirms recovery confidence; holding at 40%+ says bears still hold the thesis.</div>
     {refresh_footer(DATA_DIR / "short_interest.csv")}
   </div>
 
@@ -981,8 +1203,9 @@ def render_setup(setup: dict) -> str:
     <div class="setup-card-header">
       <div class="setup-card-title">Buyback Authorization {datestamp_chip(buyback_md['datestamp'])}</div>
     </div>
+    <div class="setup-context"><strong>$80M remaining</strong> of authorization, paused mid-covenant talks. Resumption = strongest possible management floor signal.</div>
     <div class="buyback-body">{buyback_md['html']}</div>
-    <div class="setup-foot"><strong>What to watch:</strong> resumption flips short-squeeze risk hard — management wouldn't burn cash on share repurchases mid-covenant-negotiation unless conviction is high.</div>
+    <div class="setup-foot"><strong>What to watch:</strong> any 8-K mentioning share repurchases. Management wouldn't burn cash here unless conviction is high.</div>
     {refresh_footer(READS_DIR / "buyback_status.md")}
   </div>
 </div>
@@ -1252,73 +1475,143 @@ def render_community(comm: dict) -> str:
             READS_DIR / "controversy_vs_stock_take.md",
             y_axis_label="Both series indexed to 100 at start",
             height_class="big")}
-
-{chart_card("tdpVsRevenueChart",
-            "TDP Growth YoY vs Revenue Growth YoY · 8 quarters",
-            "Side-by-side bars per quarter. Tests whether distribution gains are translating into revenue.",
-            "TDP (Total Distribution Points — shelf SKU placements) from management commentary + sell-side. Revenue YoY from quarterly prints.",
-            READS_DIR / "tdp_vs_revenue_take.md",
-            y_axis_label="YoY growth (%)",
-            height_class="big")}
 """
 
 
-def render_financial(fin: dict) -> str:
-    # Credibility table
+def render_financial(fin: dict, full_cred: dict, cat_burn: dict) -> str:
+    # Expanded credibility table (22 quarters from guidance_history_full.csv)
     rows_html = ""
-    for r in fin["credibility"]:
+    for r in full_cred["rows"]:
         dk = r["delta_kind"]
-        badge = {"miss": "badge-neg", "beat": "badge-pos", "cut": "badge-neg"}.get(dk, "badge-na")
+        badge = {"miss": "badge-neg", "beat": "badge-pos", "cut": "badge-neg",
+                 "inline": "badge-mid", "in-line": "badge-mid"}.get(dk, "badge-na")
+        miss_type = r.get("miss_type", "n/a")
+        mt_html = ('<span class="muted-cell" style="font-size:10.5px">'
+                   f'{miss_type}</span>' if miss_type and miss_type != "n/a" else "")
         rows_html += f"""
 <tr>
   <td><strong>{r['period']}</strong></td>
   <td>{r['metric']}</td>
-  <td>{r['management_said']}</td>
+  <td class="muted-cell" style="font-size:11.5px">{r['guided']}</td>
   <td>{r['actual']}</td>
   <td><span class="badge {badge}">{r['delta']}</span></td>
+  <td>{mt_html}</td>
 </tr>"""
     cred_table = (f'<div class="table-card"><table>'
-        f'<thead><tr><th>Period</th><th>Metric</th><th>Management Said</th><th>Actual</th><th>Delta</th></tr></thead>'
+        f'<thead><tr><th>Period</th><th>Metric</th><th>Management Guided</th>'
+        f'<th>Actual</th><th>Delta</th><th>Miss Type</th></tr></thead>'
         f'<tbody>{rows_html}</tbody></table></div>'
-        if rows_html else '<div class="placeholder">No rows in <code>data/guidance_vs_actual.csv</code>.</div>')
+        if rows_html else '<div class="placeholder">No rows in <code>data/guidance_history_full.csv</code>.</div>')
+
+    # Summary stat row
+    s = full_cred.get("summary", {})
+    summary_chip_row = ""
+    if s:
+        summary_chip_row = f"""
+<div class="stat-row" style="margin-bottom:14px">
+  <div class="stat-card"><div class="stat-val">{s.get("beats", 0)}</div><div class="stat-lbl">Beats</div></div>
+  <div class="stat-card"><div class="stat-val">{s.get("in_line", 0)}</div><div class="stat-lbl">In-line</div></div>
+  <div class="stat-card"><div class="stat-val">{s.get("misses", 0)}</div><div class="stat-lbl">Misses</div></div>
+  <div class="stat-card"><div class="stat-val">{s.get("cuts", 0)}</div><div class="stat-lbl">Cuts</div></div>
+  <div class="stat-card"><div class="stat-val muted-cell">{s.get("na", 0)}</div><div class="stat-lbl">N/A</div></div>
+</div>"""
+
+    # Categorized cash burn — Q1 actual + FY26 projected side-by-side
+    CAT_BG = {"DISCRETIONARY": "#e1f0dc", "RECOVERABLE": "#dde8f0",
+              "ONE-TIME": "#fdefc9", "COMMITTED": "#fde2c4", "STRUCTURAL": "#eee7d6"}
+    CAT_FG = {"DISCRETIONARY": "#2a5a30", "RECOVERABLE": "#2c5a82",
+              "ONE-TIME": "#8a6b10", "COMMITTED": "#b8682d", "STRUCTURAL": "#8b8271"}
+
+    def burn_table(rows, total_label):
+        if not rows:
+            return '<div class="placeholder">No data.</div>'
+        body = ""
+        for r in rows:
+            cat = r["category"]
+            bg = CAT_BG.get(cat, "#eee"); fg = CAT_FG.get(cat, "#333")
+            amt = r["amount_m"]
+            amt_str = f"${amt:.0f}M" if amt >= 0 else f"-${abs(amt):.0f}M"
+            body += f"""
+<tr>
+  <td><strong>{r['line_item']}</strong></td>
+  <td class="num">{amt_str}</td>
+  <td><span class="badge" style="background:{bg};color:{fg}">{cat}</span></td>
+  <td class="muted-cell" style="font-size:11px">{r['note']}</td>
+</tr>"""
+        total = sum(r["amount_m"] for r in rows)
+        total_str = f"${total:.0f}M" if total >= 0 else f"-${abs(total):.0f}M"
+        body += f"""
+<tr style="background:rgba(46,90,60,0.06)">
+  <td><strong>{total_label}</strong></td>
+  <td class="num"><strong>{total_str}</strong></td>
+  <td></td><td></td>
+</tr>"""
+        return f"""
+<div class="table-card">
+<table>
+  <thead><tr><th>Line item</th><th class="num">$M</th><th>Category</th><th>Note</th></tr></thead>
+  <tbody>{body}</tbody>
+</table>
+</div>"""
 
     md = load_markdown(READS_DIR / "credibility_take.md")
+    burn_md = load_markdown(READS_DIR / "cash_burn_categorized_take.md")
+    legend_html = ''.join(
+        f'<span class="badge" style="background:{CAT_BG[k]};color:{CAT_FG[k]};margin-right:6px">{k}</span>'
+        for k in ("DISCRETIONARY", "RECOVERABLE", "ONE-TIME", "COMMITTED", "STRUCTURAL"))
 
     return f"""
 <div class="section-header" id="financial">
-  <div class="section-num">SECTION 05</div>
+  <div class="section-num">SECTION 06</div>
   <div class="section-title">Financial History</div>
-  <div class="section-subtitle">Is the financial trajectory recovering or declining? EBITDA margin arc · cash-burn composition · guidance scorecard.</div>
+  <div class="section-subtitle">EBITDA margin arc · cash-burn composition with category flags · 22-quarter guidance scorecard since IPO.</div>
 </div>
 
 {chart_card("ebitdaHistoryChart",
             "EBITDA Margin History · 2020 → 2030 Target",
             "Peak Q1 25 at 16.9%. 10-14% historical norm band shaded. 2030 target 15-17% (aspirational — only hit it once).",
-            "Annual data 2020-2024 from 10-K filings. Quarterly 2025-2026 from prints. 2026E and beyond from management guide ranges. 2030T from corporate strategy day.",
+            "Annual data 2020-2024 from 10-K filings. Quarterly 2025-2026 from prints. 2026E+ from management guide ranges. 2030T from corporate strategy day.",
             READS_DIR / "ebitda_history_take.md",
             y_axis_label="EBITDA margin (% of revenue)",
             height_class="big")}
 
-{chart_card("cashBurnChart",
-            "Cash Burn Decomposition · Last 4 Quarters",
-            "Stacked bars showing where each quarter's burn went: Operations · CapEx · Supply Management · Buyback · Other.",
-            "Operations + CapEx from cash flow statements. Supply mgmt from management commentary. Buyback from share repurchase disclosures. Q2/H2 2026 from guidance midpoints.",
-            READS_DIR / "cash_burn_take.md",
-            y_axis_label="Cash burn ($M, stacked)",
-            height_class="big")}
+<div class="chart-card">
+  <div class="chart-title-row">
+    <h3>Cash Burn Decomposition · Q1 2026 Actual + FY26 Projected Remaining</h3>
+    <div class="chart-subtitle">Each line item flagged by category so you can see which dollars are at risk vs locked in.</div>
+  </div>
+  <div class="axis-label">Categories: {legend_html}</div>
+  <div class="dual-col">
+    <div>
+      <h4 style="font-size:12.5px;margin-bottom:8px;color:var(--text-soft)">Q1 2026 Actual · $62M burn</h4>
+      {burn_table(cat_burn.get('actual', []), 'Q1 2026 actual')}
+    </div>
+    <div>
+      <h4 style="font-size:12.5px;margin-bottom:8px;color:var(--text-soft)">Q2-Q4 2026 Projected · ~$60M remaining</h4>
+      {burn_table(cat_burn.get('projected', []), 'FY26 remaining (projected)')}
+    </div>
+  </div>
+  <div class="source-caption"><strong>Source:</strong> Q1 line items from cash flow statement + management commentary. Projected items from Q1 earnings call guidance + analyst estimates. Category tags assigned by analyst per management discretion / contractual commitment.</div>
+  <div class="chart-take">
+    <div class="take-eyebrow">WHAT TO WATCH {datestamp_chip(burn_md['datestamp'])}</div>
+    {burn_md['html']}
+  </div>
+  {refresh_footer(DATA_DIR / "cash_burn_decomposition.csv")}
+</div>
 
 <div class="chart-card">
   <div class="chart-title-row">
-    <h3>Management Credibility Scorecard {datestamp_chip(md['datestamp'])}</h3>
-    <div class="chart-subtitle">Two cuts in 4 months. The trajectory matters more than any single line — watch for any forward number that holds within the new guide range as the recovery signal.</div>
+    <h3>Management Credibility Scorecard · 22 Quarters Since IPO {datestamp_chip(md['datestamp'])}</h3>
+    <div class="chart-subtitle">Full historical track record. Trajectory matters more than any single line. Recent cuts (Feb 26 + May 7) are the most material — Q2 print Aug 6 is the trust rebuild test.</div>
   </div>
+  {summary_chip_row}
   {cred_table}
-  <div class="source-caption"><strong>Source:</strong> Quarterly earnings releases and call transcripts. Hand-curated in <code>guidance_vs_actual.csv</code>; appended on each print.</div>
-  {refresh_footer(DATA_DIR / "guidance_vs_actual.csv")}
+  <div class="source-caption"><strong>Source:</strong> Quarterly earnings releases and call transcripts since IPO (Aug 2020). Hand-curated in <code>guidance_history_full.csv</code>; cells marked "n/a" where data is unavailable — no fabrication.</div>
   <div class="chart-take">
     <div class="take-eyebrow">WHAT TO WATCH {datestamp_chip(md['datestamp'])}</div>
     {md['html']}
   </div>
+  {refresh_footer(DATA_DIR / "guidance_history_full.csv")}
 </div>
 """
 
@@ -1366,6 +1659,219 @@ def render_correlation(corr: dict) -> str:
 <div class="chart-take">
   <div class="take-eyebrow">WHAT TO WATCH {datestamp_chip(md['datestamp'])}</div>
   {md['html']}
+</div>
+"""
+
+
+def render_operating_recovery(op_rec: dict, tdp: dict) -> str:
+    """Section 05 — Comp difficulty + GM trajectory + 2yr stack + TDP (moved from S04)."""
+    return f"""
+<div class="section-header" id="operating-recovery">
+  <div class="section-num">SECTION 05</div>
+  <div class="section-title">Operating Recovery &amp; Comp Difficulty</div>
+  <div class="section-subtitle">When does the math turn favorable? GM inflects before revenue · comps get easy in Q4 26 · 2yr stack normalizes for base effects.</div>
+</div>
+
+{chart_card("compDifficultyChart",
+            "Quarterly Revenue Growth · Comp Difficulty Color · Q1 25 → Q4 27E",
+            "Each bar color-coded by comp difficulty (red hard / yellow medium / green easy). When does the math turn favorable?",
+            "VITL reported quarters + management guided range + analyst estimates for Q2 26 onward.",
+            READS_DIR / "comp_difficulty_take.md",
+            y_axis_label="YoY revenue growth (%)",
+            height_class="big")}
+
+{chart_card("gmTrajectoryChart",
+            "Gross Margin Trajectory · Quarterly · Actual + Guided",
+            "GM inflects BEFORE revenue. Trough Q1 26 at 28.3%, recovery guided to 30%+ Q4 26, 33-35% FY27.",
+            "Reported quarters from prints + management guided range + FY27 directional band.",
+            READS_DIR / "gross_margin_take.md",
+            y_axis_label="Gross margin (%)",
+            height_class="big")}
+
+{chart_card("twoYrStackChart",
+            "2-Year Stacked Revenue Growth · Quarterly",
+            "Normalizes for base effects. The first quarter where the stack STOPS declining is the stabilization signal.",
+            "Computed from quarterly revenue YoY: current period YoY + prior-year YoY for the same quarter.",
+            READS_DIR / "two_year_stack_take.md",
+            y_axis_label="2-yr stacked YoY growth (%)",
+            height_class="big")}
+
+{chart_card("tdpVsRevenueChart",
+            "TDP Growth YoY vs Revenue Growth YoY · 8 quarters",
+            "Side-by-side bars. Tests whether distribution gains are translating into revenue.",
+            "TDP (Total Distribution Points — shelf SKU placements) from management commentary + sell-side. Revenue YoY from quarterly prints.",
+            READS_DIR / "tdp_vs_revenue_take.md",
+            y_axis_label="YoY growth (%)",
+            height_class="big")}
+"""
+
+
+def render_valuation(val: dict) -> str:
+    md = load_markdown(READS_DIR / "valuation_snapshot_take.md")
+    # Multiples cards
+    mult_cards = ""
+    for m in val.get("multiples", []):
+        range_str = (f"3yr range: {m['range_low']}x – {m['range_high']}x"
+                     if m.get("range_low") is not None and m.get("range_high") is not None
+                     else "")
+        position = ""
+        if m.get("range_low") is not None and m.get("range_high") is not None:
+            span = m["range_high"] - m["range_low"]
+            if span > 0:
+                pos_pct = (m["value"] - m["range_low"]) / span
+                if pos_pct < 0.33: position = "Low end of range"
+                elif pos_pct < 0.66: position = "Mid range"
+                else: position = "High end of range"
+        mult_cards += f"""
+<div class="val-card">
+  <div class="val-label">{m['label']}</div>
+  <div class="val-num">{m['value']:.1f}x</div>
+  <div class="val-range">{range_str}</div>
+  <div class="val-pos">{position}</div>
+  <div class="val-note muted-cell">{m['note']}</div>
+</div>"""
+
+    # Scenarios table
+    scenarios_html = ""
+    for s in val.get("scenarios", []):
+        scenarios_html += f"""
+<tr>
+  <td><strong>{s['label']}</strong></td>
+  <td class="num">${s['implied_price']:.2f}</td>
+  <td class="muted-cell">{s['note']}</td>
+</tr>"""
+    current_str = (f"${val['current_price']:.2f}"
+                   if val.get("current_price") is not None else "—")
+
+    return f"""
+<div class="section-header" id="valuation">
+  <div class="section-num">SECTION 07</div>
+  <div class="section-title">Valuation Snapshot</div>
+  <div class="section-subtitle">Current multiples vs 3yr historical band + scenario math. The asymmetry the bull case is built on.</div>
+</div>
+
+<div class="chart-card">
+  <div class="chart-title-row">
+    <h3>Current Multiples vs 3-Year Historical Range</h3>
+    <div class="chart-subtitle">VITL on EV/Sales is at its cheapest level since at least 2022. Forward EV/EBITDA distorted by trough EBITDA — meaningless.</div>
+  </div>
+  <div class="val-cards-row">
+    {mult_cards}
+  </div>
+  <div class="source-caption"><strong>Source:</strong> Trailing multiples from yfinance + reported financials. 3yr ranges from publicly available consensus terminals.</div>
+</div>
+
+<div class="chart-card">
+  <div class="chart-title-row">
+    <h3>Scenario Math · 2027 EBITDA × Multiple = Implied Price</h3>
+    <div class="chart-subtitle">Even the entry case implies 50%+ upside from current. The stock is pricing closer to permanent impairment than cyclical trough.</div>
+  </div>
+  <div class="table-card">
+    <table>
+      <thead><tr><th>Scenario</th><th class="num">Implied price</th><th>Math</th></tr></thead>
+      <tbody>{scenarios_html}
+        <tr style="background:rgba(46,90,60,0.06)"><td><strong>Current price</strong></td><td class="num"><strong>{current_str}</strong></td><td class="muted-cell">May 20 2026 close</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="source-caption"><strong>Source:</strong> Scenario inputs from valuation_snapshot.csv. 2027 EBITDA range from management guide ($0-10M FY26 → recovery to $50-100M FY27 per sell-side normalized estimates).</div>
+  <div class="chart-take">
+    <div class="take-eyebrow">WHAT TO WATCH {datestamp_chip(md['datestamp'])}</div>
+    {md['html']}
+  </div>
+  {refresh_footer(DATA_DIR / "valuation_snapshot.csv")}
+</div>
+"""
+
+
+def render_catalysts(cat: dict) -> str:
+    md = load_markdown(READS_DIR / "forward_catalysts_take.md")
+    TIER_BG = {"LOW": "#eee7d6", "MED": "#fdefc9", "HIGH": "#fde2c4", "HIGHEST": "#f8d4cf"}
+    TIER_FG = {"LOW": "#8b8271", "MED": "#8a6b10", "HIGH": "#b8682d", "HIGHEST": "#b34738"}
+    DIR_BG  = {"BULL": "#e1f0dc", "BEAR": "#f8e2dc", "MIXED": "#eee7d6",
+               "DECISIVE": "#dde8f0", "PROCEDURAL": "#eee7d6", "ONGOING": "#eee7d6"}
+    DIR_FG  = {"BULL": "#2a5a30", "BEAR": "#b34738", "MIXED": "#8b8271",
+               "DECISIVE": "#2c5a82", "PROCEDURAL": "#8b8271", "ONGOING": "#8b8271"}
+
+    rows_html = ""
+    for r in cat.get("rows", []):
+        tier_bg = TIER_BG.get(r["tier"], "#eee7d6"); tier_fg = TIER_FG.get(r["tier"], "#8b8271")
+        dir_bg = DIR_BG.get(r["direction"], "#eee7d6"); dir_fg = DIR_FG.get(r["direction"], "#8b8271")
+        rows_html += f"""
+<tr>
+  <td class="num"><strong>{r['date']}</strong><div class="muted-cell" style="font-size:10.5px">{r['date_kind']}</div></td>
+  <td><strong>{r['event']}</strong><div class="muted-cell" style="font-size:11px;margin-top:2px">{r['note']}</div></td>
+  <td><span class="badge" style="background:{tier_bg};color:{tier_fg}">{r['tier']}</span></td>
+  <td><span class="badge" style="background:{dir_bg};color:{dir_fg}">{r['direction']}</span></td>
+</tr>"""
+
+    return f"""
+<div class="section-header" id="catalysts">
+  <div class="section-num">SECTION 08</div>
+  <div class="section-title">Forward Catalyst Calendar</div>
+  <div class="section-subtitle">What's coming and what it could do. Market typically re-rates 1-2 quarters ahead of easy comps.</div>
+</div>
+
+<div class="chart-card">
+  <div class="table-card">
+    <table>
+      <thead><tr><th>Date</th><th>Event</th><th>Impact tier</th><th>Direction</th></tr></thead>
+      <tbody>{rows_html}</tbody>
+    </table>
+  </div>
+  <div class="source-caption"><strong>Source:</strong> Hand-curated in data/forward_catalysts.csv from earnings call schedules + management commentary. Estimated dates flagged.</div>
+  <div class="chart-take">
+    <div class="take-eyebrow">WHAT TO WATCH {datestamp_chip(md['datestamp'])}</div>
+    {md['html']}
+  </div>
+  {refresh_footer(DATA_DIR / "forward_catalysts.csv")}
+</div>
+"""
+
+
+def render_recovery_plan(rplan: dict) -> str:
+    md = load_markdown(READS_DIR / "recovery_plan_take.md")
+    STATUS_BG = {"ANNOUNCED": "#eee7d6", "IN PROGRESS": "#fdefc9",
+                 "PARTIAL": "#e8f0d8", "DELIVERED": "#d4ead0",
+                 "CONFIRMED IN FINANCIALS": "#b3d9ad", "CONFIRMED": "#b3d9ad"}
+    STATUS_FG = {"ANNOUNCED": "#8b8271", "IN PROGRESS": "#8a6b10",
+                 "PARTIAL": "#5a8232", "DELIVERED": "#2a7a30",
+                 "CONFIRMED IN FINANCIALS": "#1e5a25", "CONFIRMED": "#1e5a25"}
+
+    rows_html = ""
+    for r in rplan.get("rows", []):
+        s = r["status"]; c = r["confirmed"]
+        s_bg = STATUS_BG.get(s, "#eee7d6"); s_fg = STATUS_FG.get(s, "#8b8271")
+        c_bg = STATUS_BG.get(c, "#eee7d6"); c_fg = STATUS_FG.get(c, "#8b8271")
+        rows_html += f"""
+<tr>
+  <td class="num"><strong>{r['order']}</strong></td>
+  <td><strong>{r['action']}</strong><div class="muted-cell" style="font-size:11px;margin-top:2px">{r['note']}</div></td>
+  <td class="muted-cell">{r['target']}</td>
+  <td><span class="badge" style="background:{s_bg};color:{s_fg}">{s}</span></td>
+  <td><span class="badge" style="background:{c_bg};color:{c_fg}">{c}</span></td>
+</tr>"""
+
+    return f"""
+<div class="section-header" id="recovery-plan">
+  <div class="section-num">SECTION 09</div>
+  <div class="section-title">Recovery Plan Tracker</div>
+  <div class="section-subtitle">The credibility play in real time. Status should progress left to right each quarter.</div>
+</div>
+
+<div class="chart-card">
+  <div class="table-card">
+    <table>
+      <thead><tr><th>#</th><th>Action</th><th>Target</th><th>Status</th><th>Confirmed?</th></tr></thead>
+      <tbody>{rows_html}</tbody>
+    </table>
+  </div>
+  <div class="source-caption"><strong>Source:</strong> Five management actions from May 7 2026 Q1 earnings call · hand-curated in data/recovery_plan_status.csv · updated quarterly.</div>
+  <div class="chart-take">
+    <div class="take-eyebrow">WHAT TO WATCH {datestamp_chip(md['datestamp'])}</div>
+    {md['html']}
+  </div>
+  {refresh_footer(DATA_DIR / "recovery_plan_status.csv")}
 </div>
 """
 
@@ -1434,25 +1940,45 @@ def render_summary_modal(s: dict) -> str:
 def build_html(d: dict) -> str:
     qr      = compute_quick_read(d)
     setup   = compute_setup(d)
+    runway  = compute_runway_math(setup)
     events  = compute_events_chart(d)
+    react_mag = compute_reaction_magnitude(d)
     news    = compute_news(d)
     cad_vs_stock = compute_cadence_vs_stock(d, news)
     egg     = compute_egg_market(d)
+    hpai_cum = compute_hpai_cumulative(d)
     comm    = compute_community(d)
+    sov_sentiment = compute_sov_sentiment(d)
+    brand_aware = compute_brand_awareness(d)
     tdp     = compute_tdp_vs_revenue(d)
+    op_rec  = compute_operating_recovery(d)
     fin     = compute_financial_history(d)
+    full_cred = compute_full_credibility(d)
+    cat_burn = compute_categorized_cash_burn(d)
+    val     = compute_valuation(d)
+    cat     = compute_catalysts(d)
+    rplan   = compute_recovery_plan(d)
     corr    = compute_correlation_matrix(d)
     summary = compute_summary(d, qr, setup, news, egg, fin, corr)
 
     chart_blob = json.dumps({
         "setup":          setup,
         "events":         events,
+        "react_mag":      react_mag,
         "news":           news,
         "cad_vs_stock":   cad_vs_stock,
         "egg":            egg,
+        "hpai_cum":       hpai_cum,
         "comm":           comm,
+        "sov_sentiment":  sov_sentiment,
+        "brand_aware":    brand_aware,
         "tdp":            tdp,
+        "op_rec":         op_rec,
         "fin":            fin,
+        "cat_burn":       cat_burn,
+        "val":            val,
+        "cat":            cat,
+        "rplan":          rplan,
         "topic_colors":   TOPIC_COLORS,
         "topic_labels":   TOPIC_LABELS,
         "brand_colors":   BRAND_SOV_COLORS,
@@ -1646,6 +2172,28 @@ def build_html(d: dict) -> str:
   .setup-card-header {{ margin-bottom: 12px; }}
   .setup-card-title {{ font-size: 14px; font-weight: 700; }}
   .setup-kpi {{ font-size: 12px; color: var(--accent); font-weight: 700; margin-top: 4px; letter-spacing: 0.3px; }}
+  /* Valuation cards row */
+  .val-cards-row {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 8px 0 12px; }}
+  @media (max-width: 1024px) {{ .val-cards-row {{ grid-template-columns: 1fr 1fr; }} }}
+  .val-card {{ background: var(--surface2); border: 1px solid var(--border);
+               border-radius: 8px; padding: 14px 16px; }}
+  .val-label {{ font-size: 10px; color: var(--muted); text-transform: uppercase;
+                letter-spacing: 0.7px; font-weight: 700; margin-bottom: 6px; }}
+  .val-num {{ font-size: 24px; font-weight: 700; color: var(--accent); letter-spacing: -0.5px; }}
+  .val-range {{ font-size: 11px; color: var(--text-soft); margin-top: 4px; }}
+  .val-pos {{ font-size: 11px; color: var(--accent); font-weight: 700; margin-top: 4px; }}
+  .val-note {{ font-size: 10.5px; margin-top: 6px; line-height: 1.4; }}
+
+  .setup-context {{ background: rgba(46,90,60,0.06); border-left: 3px solid var(--accent);
+                    padding: 8px 12px; border-radius: 4px; font-size: 12px;
+                    color: var(--text-soft); margin-bottom: 10px; line-height: 1.5; }}
+  .setup-context strong {{ color: var(--text); font-weight: 700; }}
+  .setup-context em {{ color: var(--text-soft); font-style: italic; }}
+  .setup-runway .runway-big {{ font-size: 30px; font-weight: 800; color: var(--accent);
+                               letter-spacing: -0.6px; margin: 8px 0 6px; line-height: 1.1; }}
+  .setup-runway .runway-big-unit {{ font-size: 13px; color: var(--text-soft); font-weight: 500; letter-spacing: 0; margin-left: 6px; }}
+  .setup-runway .runway-line {{ font-size: 12.5px; color: var(--text-soft); margin-bottom: 6px; line-height: 1.55; }}
+  .setup-runway .runway-line strong {{ color: var(--text); font-weight: 700; }}
   .setup-explain {{ background: rgba(46,90,60,0.06); border-left: 3px solid var(--accent);
                     padding: 8px 12px; border-radius: 4px; font-size: 12px;
                     color: var(--text-soft); margin-bottom: 10px; line-height: 1.5; }}
@@ -1753,7 +2301,11 @@ def build_html(d: dict) -> str:
     <a class="nav-btn" href="#news">Stock &amp; News</a>
     <a class="nav-btn" href="#egg-market">Egg Market</a>
     <a class="nav-btn" href="#community">Brand Health</a>
+    <a class="nav-btn" href="#operating-recovery">Operating</a>
     <a class="nav-btn" href="#financial">Financials</a>
+    <a class="nav-btn" href="#valuation">Valuation</a>
+    <a class="nav-btn" href="#catalysts">Catalysts</a>
+    <a class="nav-btn" href="#recovery-plan">Plan</a>
     <a class="nav-btn" href="#correlation">Correlations</a>
   </div>
   <button class="summary-btn" onclick="document.getElementById('summaryModal').style.display='flex'">
@@ -1766,11 +2318,15 @@ def build_html(d: dict) -> str:
 
 <div class="container">
   {render_quick_read(qr)}
-  {render_setup(setup)}
+  {render_setup(setup, runway)}
   {render_stock_news(events, news, cad_vs_stock)}
   {render_egg_market(egg)}
   {render_community(comm)}
-  {render_financial(fin)}
+  {render_operating_recovery(op_rec, tdp)}
+  {render_financial(fin, full_cred, cat_burn)}
+  {render_valuation(val)}
+  {render_catalysts(cat)}
+  {render_recovery_plan(rplan)}
   {render_correlation(corr)}
   {render_archived()}
 </div>
@@ -1842,38 +2398,8 @@ def build_html(d: dict) -> str:
     const A = d.accent, A2 = d.accent2, A3 = d.accent3, NEG = d.accent_neg;
     const PURPLE = d.purple, BROWN = d.brown, BLUE = d.blue;
 
-    // ── Section 01 — Cash + Short + Setup-Over-Time ───────────────────────
+    // ── Section 01 — Short + Setup-Over-Time (cash chart removed) ─────────
     const setup = d.setup;
-    new Chart(document.getElementById('cashChart'), {{
-      type: 'bar',
-      data: {{
-        labels: setup.cash_rows.map(r => r.label),
-        datasets: [{{
-          label: 'Cash ($M)',
-          data: setup.cash_rows.map(r => r.tbd ? null : r.value),
-          backgroundColor: setup.cash_rows.map(r => r.tbd ? 'rgba(46,90,60,0.18)' : (r.value < 80 ? NEG : A)),
-          borderColor: setup.cash_rows.map(r => r.tbd ? A : 'transparent'),
-          borderWidth: 2, borderRadius: 4,
-          borderDash: setup.cash_rows.map(r => r.tbd ? [5,3] : []),
-        }}],
-      }},
-      options: {{
-        responsive: true, maintainAspectRatio: false,
-        plugins: {{
-          legend: {{ display: false }},
-          tooltip: {{ callbacks: {{
-            label: ctx => ctx.raw == null ? 'TBD (Q2 print pending)' : '$' + ctx.raw.toFixed(1) + 'M',
-            afterBody: ctx => {{ const r = setup.cash_rows[ctx[0].dataIndex]; return r && r.note ? r.note : ''; }},
-          }} }},
-        }},
-        scales: {{
-          x: {{ grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }} }} }},
-          y: {{ grid: {{ color: 'rgba(0,0,0,0.05)' }},
-                ticks: {{ font: {{ size: 10 }}, callback: v => '$' + v + 'M' }},
-                title: {{ display: true, text: 'Cash & equivalents ($M)', font: {{ size: 10 }} }} }},
-        }},
-      }},
-    }});
 
     new Chart(document.getElementById('shortChart'), {{
       type: 'line',
@@ -2212,6 +2738,78 @@ def build_html(d: dict) -> str:
       }},
     }});
 
+    // ── Section 05 — Operating Recovery (Comp Difficulty, GM, 2yr Stack, TDP) ──
+    const op = d.op_rec;
+    const COMP_BG = {{"easy": "#9fc69a", "medium": "#f0d168", "hard": "#d97f6e"}};
+    new Chart(document.getElementById('compDifficultyChart'), {{
+      type: 'bar',
+      data: {{
+        labels: op.comp.quarters,
+        datasets: [{{
+          label: 'Revenue YoY %', data: op.comp.growth,
+          backgroundColor: op.comp.comp_kinds.map(k => COMP_BG[k] || '#999'),
+          borderColor: op.comp.kinds.map(k => k === 'estimate' ? '#999' : 'transparent'),
+          borderWidth: 2, borderDash: op.comp.kinds.map(k => k === 'estimate' ? [3,3] : []),
+          borderRadius: 3,
+        }}],
+      }},
+      options: {{
+        responsive: true, maintainAspectRatio: false,
+        plugins: {{ legend: {{ display: false }}, tooltip: {{
+          callbacks: {{ label: ctx => ctx.raw.toFixed(1) + '% (' + op.comp.comp_kinds[ctx.dataIndex] + ' comp · ' + op.comp.kinds[ctx.dataIndex] + ')' }} }} }},
+        scales: {{
+          x: {{ grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }}, maxRotation: 45, minRotation: 30 }} }},
+          y: {{ grid: {{ color: 'rgba(0,0,0,0.04)' }}, ticks: {{ font: {{ size: 10 }}, callback: v => v + '%' }},
+                title: {{ display: true, text: 'YoY revenue growth (%)', font: {{ size: 10 }} }} }},
+        }},
+      }},
+    }});
+
+    new Chart(document.getElementById('gmTrajectoryChart'), {{
+      type: 'line',
+      data: {{
+        labels: op.gm.quarters,
+        datasets: [{{
+          label: 'Gross margin (%)', data: op.gm.values, borderColor: A,
+          backgroundColor: 'rgba(46,90,60,0.06)', borderWidth: 2.2, tension: 0.2, fill: true,
+          pointRadius: 5,
+          pointBackgroundColor: op.gm.kinds.map(k => k === 'actual' ? A : A2),
+          pointBorderColor: '#fff', pointBorderWidth: 2,
+        }}],
+      }},
+      options: {{
+        responsive: true, maintainAspectRatio: false,
+        plugins: {{ legend: {{ display: false }},
+                    tooltip: {{ callbacks: {{ label: ctx => ctx.raw.toFixed(1) + '% (' + op.gm.kinds[ctx.dataIndex] + ')' }} }} }},
+        scales: {{
+          x: {{ grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }}, maxRotation: 45, minRotation: 30 }} }},
+          y: {{ grid: {{ color: 'rgba(0,0,0,0.04)' }}, ticks: {{ font: {{ size: 10 }}, callback: v => v + '%' }},
+                title: {{ display: true, text: 'Gross margin (%)', font: {{ size: 10 }} }} }},
+        }},
+      }},
+    }});
+
+    new Chart(document.getElementById('twoYrStackChart'), {{
+      type: 'line',
+      data: {{
+        labels: op.stack.quarters,
+        datasets: [{{
+          label: '2yr stacked YoY %', data: op.stack.stack,
+          borderColor: PURPLE, backgroundColor: 'rgba(142,109,180,0.10)',
+          borderWidth: 2.2, tension: 0.2, fill: true, pointRadius: 3,
+        }}],
+      }},
+      options: {{
+        responsive: true, maintainAspectRatio: false,
+        plugins: {{ legend: {{ display: false }} }},
+        scales: {{
+          x: {{ grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }}, maxRotation: 45, minRotation: 30 }} }},
+          y: {{ grid: {{ color: 'rgba(0,0,0,0.04)' }}, ticks: {{ font: {{ size: 10 }}, callback: v => v + '%' }},
+                title: {{ display: true, text: '2yr stacked growth (%)', font: {{ size: 10 }} }} }},
+        }},
+      }},
+    }});
+
     const tdp = d.tdp;
     new Chart(document.getElementById('tdpVsRevenueChart'), {{
       type: 'bar',
@@ -2233,7 +2831,7 @@ def build_html(d: dict) -> str:
       }},
     }});
 
-    // ── Section 05 — EBITDA history + Cash burn decomp ────────────────────
+    // ── Section 06 — EBITDA history + Cash burn decomp ────────────────────
     const eh = d.fin.ebitda;
     // Color quarterly = light, annual = dark, target = accent gold
     const ebColors = eh.kinds.map(k => k === "annual" ? A : (k === "quarterly" ? A3 : A2));
@@ -2266,30 +2864,16 @@ def build_html(d: dict) -> str:
       }},
     }});
 
-    const cb = d.fin.cash_burn;
-    new Chart(document.getElementById('cashBurnChart'), {{
-      type: 'bar',
-      data: {{
-        labels: cb.quarters,
-        datasets: [
-          {{ label: 'Operations',    data: cb.operations,  backgroundColor: A,      borderRadius: 2 }},
-          {{ label: 'CapEx',         data: cb.capex,       backgroundColor: A2,     borderRadius: 2 }},
-          {{ label: 'Supply mgmt',   data: cb.supply_mgmt, backgroundColor: NEG,    borderRadius: 2 }},
-          {{ label: 'Buyback',       data: cb.buyback,     backgroundColor: PURPLE, borderRadius: 2 }},
-          {{ label: 'Other',         data: cb.other,       backgroundColor: BROWN,  borderRadius: 2 }},
-        ],
-      }},
-      options: {{
-        responsive: true, maintainAspectRatio: false,
-        plugins: {{ legend: {{ position: 'bottom', labels: {{ font: {{ size: 11 }} }} }}, tooltip: {{ mode: 'index', intersect: false }} }},
-        scales: {{
-          x: {{ stacked: true, grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }} }} }},
-          y: {{ stacked: true, grid: {{ color: 'rgba(0,0,0,0.04)' }},
-                ticks: {{ font: {{ size: 10 }}, callback: v => '$' + v + 'M' }},
-                title: {{ display: true, text: 'Cash burn ($M)', font: {{ size: 10 }} }} }},
-        }},
-      }},
-    }});
+    // Cash burn chart removed — replaced by side-by-side categorized tables in Section 06.
+    // Keep an empty new Chart() so the page doesn't error if any cached canvas
+    // hangs around in DOM.
+    const _cashBurnNoop = (() => {{
+      const el = document.getElementById('cashBurnChart');
+      if (!el) return null;
+      return new Chart(el, {{
+        type: 'bar', data: {{ labels: [], datasets: [] }},
+      options: {{ responsive: true, maintainAspectRatio: false, plugins: {{ legend: {{ display: false }} }} }} }});
+    }})();
   }});
 </script>
 

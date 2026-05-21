@@ -29,7 +29,8 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _arctic import (  # noqa: E402
-    fetch_one, iso_to_epoch, apply_filters, ARCTIC_BASE, ARCTIC_COMMENTS,
+    fetch_one, iso_to_epoch, apply_filters, classify_sentiment,
+    ARCTIC_BASE, ARCTIC_COMMENTS,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -110,18 +111,24 @@ def main() -> int:
         time.sleep(PER_BRAND_PAUSE_SEC)
 
     if not all_rows:
-        out = pd.DataFrame(columns=["week", "brand", "post_count"])
+        out = pd.DataFrame(columns=["week", "brand", "post_count", "pos_count", "neg_count", "neu_count"])
     else:
         df = pd.DataFrame(all_rows).drop_duplicates(subset=["brand", "subreddit", "item_id", "kind"])
         df["dt"] = pd.to_datetime(df["created_utc"], unit="s", utc=True)
         df["week"] = df["dt"].dt.to_period("W-SUN").dt.end_time.dt.strftime("%Y-%m-%d")
-        out = (
-            df.groupby(["week", "brand"])
-            .size()
-            .reset_index(name="post_count")
-            .sort_values(["week", "brand"])
-            .reset_index(drop=True)
-        )
+        # Sentiment per row (body-based when available, neutral otherwise)
+        df["sentiment"] = df["body"].apply(classify_sentiment) if "body" in df.columns else "neutral"
+        # Aggregate total + sentiment split per (week, brand)
+        total = df.groupby(["week", "brand"]).size().reset_index(name="post_count")
+        pos = df[df["sentiment"] == "positive"].groupby(["week", "brand"]).size().reset_index(name="pos_count")
+        neg = df[df["sentiment"] == "negative"].groupby(["week", "brand"]).size().reset_index(name="neg_count")
+        neu = df[df["sentiment"] == "neutral"].groupby(["week", "brand"]).size().reset_index(name="neu_count")
+        out = total.merge(pos, on=["week", "brand"], how="left") \
+                   .merge(neg, on=["week", "brand"], how="left") \
+                   .merge(neu, on=["week", "brand"], how="left")
+        for c in ("pos_count", "neg_count", "neu_count"):
+            out[c] = out[c].fillna(0).astype(int)
+        out = out.sort_values(["week", "brand"]).reset_index(drop=True)
 
     OUT_CSV.parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(OUT_CSV, index=False)
