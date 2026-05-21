@@ -25,13 +25,14 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _arctic import (  # noqa: E402
     fetch_one, iso_to_epoch, weekly_counts, apply_filters,
-    ARCTIC_BASE, ARCTIC_COMMENTS,
+    classify_sentiment, ARCTIC_BASE, ARCTIC_COMMENTS,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_CSV = PROJECT_ROOT / "config" / "reddit_subreddits.csv"
 OUT_CSV = PROJECT_ROOT / "data" / "reddit_mentions_weekly.csv"
 LINOLEIC_OUT_CSV = PROJECT_ROOT / "data" / "linoleic_decay_weekly.csv"
+POSTS_CSV = PROJECT_ROOT / "data" / "reddit_posts_recent.csv"
 
 QUERY = "vital farms"
 # 3-stage budget: title posts (45s) → body posts (45s) → comments (60s).
@@ -167,6 +168,26 @@ def main() -> int:
         f"\n  ✓ wrote {OUT_CSV.name}  rows={len(weekly)}  total={total}  "
         f"weeks={weekly['week'].nunique() if not weekly.empty else 0}"
     )
+
+    # ── Recent posts feed — write actual titles + bodies + URLs ────────────
+    # The dashboard renders this as a scrolling list of the latest real
+    # Vital Farms discussion across all monitored subs.
+    if rows:
+        posts_df = pd.DataFrame(rows).drop_duplicates(subset=["subreddit", "item_id", "kind"])
+        posts_df["date"] = pd.to_datetime(posts_df["created_utc"], unit="s", utc=True).dt.strftime("%Y-%m-%d")
+        if "sentiment" not in posts_df.columns:
+            posts_df["sentiment"] = posts_df["body"].apply(classify_sentiment)
+        # Excerpt = title for posts, or first 200 chars of body for comments
+        def _excerpt(row):
+            if row.get("kind") == "post" and row.get("title"):
+                return str(row["title"])
+            b = str(row.get("body") or "").strip().replace("\n", " ")
+            return b[:200] + ("…" if len(b) > 200 else "")
+        posts_df["excerpt"] = posts_df.apply(_excerpt, axis=1)
+        out = posts_df[["date", "subreddit", "kind", "author", "excerpt", "url",
+                        "score", "num_comments", "sentiment"]].sort_values("date", ascending=False)
+        out.head(80).to_csv(POSTS_CSV, index=False)
+        print(f"  ✓ wrote {POSTS_CSV.name}  rows={min(80, len(out))}  (most-recent VITL posts/comments)")
 
     # Linoleic / seed-oil controversy decay
     print("\n  ── secondary pass: linoleic-keyword decay ──")

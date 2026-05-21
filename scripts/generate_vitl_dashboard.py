@@ -132,6 +132,9 @@ def load_all() -> dict:
         "hpai_cumulative":    safe_read(DATA_DIR / "hpai_cumulative.csv"),
         # pass-7 addition
         "youtube_competitors": safe_read(DATA_DIR / "youtube_competitors_monthly.csv"),
+        # pass-8 additions — actual content feeds (titles + URLs, not just counts)
+        "reddit_posts":       safe_read(DATA_DIR / "reddit_posts_recent.csv"),
+        "youtube_videos":     safe_read(DATA_DIR / "youtube_recent_videos.csv"),
     }
 
 
@@ -924,6 +927,44 @@ def compute_sov_sentiment(d: dict) -> dict:
     return {"weeks": weeks, "brands": brands, "totals": totals}
 
 
+def compute_reddit_posts(d: dict) -> list:
+    """Latest 30 Vital Farms posts/comments with title or body excerpt + URL + sentiment."""
+    df = d["reddit_posts"]
+    if df.empty: return []
+    out = []
+    for _, r in df.head(30).iterrows():
+        out.append({
+            "date": str(r.get("date", "")),
+            "subreddit": str(r.get("subreddit", "")),
+            "kind": str(r.get("kind", "")),
+            "author": str(r.get("author", "")),
+            "excerpt": str(r.get("excerpt", ""))[:240],
+            "url": str(r.get("url", "")),
+            "score": int(r.get("score") or 0),
+            "num_comments": int(r.get("num_comments") or 0),
+            "sentiment": str(r.get("sentiment", "neutral")),
+        })
+    return out
+
+
+def compute_youtube_videos(d: dict) -> list:
+    """Latest 30 YouTube videos with title + channel + views + URL."""
+    df = d["youtube_videos"]
+    if df.empty: return []
+    out = []
+    for _, r in df.head(30).iterrows():
+        out.append({
+            "published": str(r.get("published", ""))[:10],
+            "title":   str(r.get("title", ""))[:200],
+            "channel": str(r.get("channel", "")),
+            "views":   int(r.get("views") or 0),
+            "url":     str(r.get("url", "")),
+            "query":   str(r.get("query", "")),
+            "pass":    str(r.get("pass", "")),
+        })
+    return out
+
+
 def compute_youtube_vitl(d: dict) -> dict:
     """VITL 'vital farms' general query — monthly volume + view_sum."""
     y = d["youtube_monthly"]
@@ -1606,7 +1647,62 @@ def _build_brand_stat_row(comm: dict) -> str:
     return header + '<div class="stat-row">' + "".join(cards) + "</div>" + explainer
 
 
-def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict) -> str:
+def _render_reddit_feed(posts: list) -> str:
+    if not posts:
+        return ('<div class="placeholder">No recent VITL posts captured yet · '
+                'run <code>make refresh-data</code> after adding investing subs '
+                '(r/VitalFarms, r/ValueInvesting, r/stocks).</div>')
+    items = []
+    SENT_COLORS = {"positive": ("#e1f0dc", "#2a5a30"),
+                   "negative": ("#f8e2dc", "#b34738"),
+                   "neutral":  ("#eee7d6", "#6a6553")}
+    for p in posts:
+        bg, fg = SENT_COLORS.get(p["sentiment"], ("#eee7d6", "#6a6553"))
+        url_html = (f'<a href="{p["url"]}" target="_blank" rel="noopener">{p["excerpt"]}</a>'
+                    if p["url"] else p["excerpt"])
+        meta = f'r/{p["subreddit"]} · {p["kind"]} · u/{p["author"]}'
+        if p["score"] or p["num_comments"]:
+            meta += f' · ↑{p["score"]} · 💬 {p["num_comments"]}'
+        items.append(f"""
+<div class="feed-item">
+  <div class="feed-row1">
+    <span class="feed-date">{p['date']}</span>
+    <span class="badge" style="background:{bg};color:{fg};font-size:9px">{p['sentiment']}</span>
+  </div>
+  <div class="feed-excerpt">{url_html}</div>
+  <div class="feed-meta">{meta}</div>
+</div>""")
+    return '<div class="feed-list">' + "".join(items) + '</div>'
+
+
+def _render_youtube_feed(videos: list) -> str:
+    if not videos:
+        return ('<div class="placeholder">No recent VITL videos captured yet · '
+                'run <code>fetch_youtube.py</code> with <code>YOUTUBE_API_KEY</code> set.</div>')
+    items = []
+    PASS_COLORS = {"general": ("#e1f0dc", "#2a5a30"),
+                   "linoleic": ("#f8e2dc", "#b34738"),
+                   "competitor": ("#dde8f0", "#2c5a82")}
+    for v in videos:
+        bg, fg = PASS_COLORS.get(v["pass"], ("#eee7d6", "#6a6553"))
+        url_html = (f'<a href="{v["url"]}" target="_blank" rel="noopener">{v["title"]}</a>'
+                    if v["url"] else v["title"])
+        view_str = f"{v['views']:,} views" if v['views'] else ""
+        meta = f'{v["channel"]} · query: "{v["query"]}"' + (f' · {view_str}' if view_str else '')
+        items.append(f"""
+<div class="feed-item">
+  <div class="feed-row1">
+    <span class="feed-date">{v['published']}</span>
+    <span class="badge" style="background:{bg};color:{fg};font-size:9px">{v['pass']}</span>
+  </div>
+  <div class="feed-excerpt">{url_html}</div>
+  <div class="feed-meta">{meta}</div>
+</div>""")
+    return '<div class="feed-list">' + "".join(items) + '</div>'
+
+
+def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict,
+                            reddit_posts: list, yt_videos: list) -> str:
     """Section 01 — Social Signal Overview (NEW).
 
     Three subsections: Reddit, YouTube, Controversy. Promoted from old
@@ -1698,6 +1794,9 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict) -> str:
                  "narrative migration in long-form content."),
     )
 
+    reddit_feed_html = _render_reddit_feed(reddit_posts)
+    youtube_feed_html = _render_youtube_feed(yt_videos)
+
     yt_competitor_present = any(any(v) for v in yt_brands.values())
     yt_competitor_empty_card = ""
     if not yt_competitor_present:
@@ -1747,6 +1846,16 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict) -> str:
             dynamic_take=sov_take)}
 {brand_stat_row}
 
+<div class="chart-card">
+  <div class="chart-title-row">
+    <h3>Recent VITL Posts · Most Recent 30 Across Monitored Subs</h3>
+    <div class="chart-subtitle">Actual titles + bodies linked back to the source. The signal lives here — what people are <em>saying</em>, not just volume counts.</div>
+  </div>
+  {reddit_feed_html}
+  <div class="source-caption"><strong>Source:</strong> Arctic Shift via <code>fetch_reddit_arctic.py</code> · post titles for posts, first 200 chars for comments · sentiment from dictionary classifier on body text.</div>
+  {refresh_footer(DATA_DIR / "reddit_posts_recent.csv")}
+</div>
+
 <div class="subsection-header">
   <div class="subsection-eyebrow">1B · YOUTUBE SIGNAL</div>
   <div class="subsection-title">Long-form creator mindshare · monthly</div>
@@ -1770,6 +1879,16 @@ def render_social_overview(comm: dict, yt_vitl: dict, yt_comp: dict) -> str:
             height_class="big",
             dynamic_take=yt_comp_take)}
 {yt_competitor_empty_card}
+
+<div class="chart-card">
+  <div class="chart-title-row">
+    <h3>Recent VITL Videos · Most Recent 30 Across All Queries</h3>
+    <div class="chart-subtitle">Actual video titles + channels linked to YouTube. Content matters — a creator review beats a hashtag count for understanding narrative.</div>
+  </div>
+  {youtube_feed_html}
+  <div class="source-caption"><strong>Source:</strong> YouTube Data API v3 via <code>fetch_youtube.py</code> · across general + linoleic + competitor passes · pass-tag badges identify which query set each video came from.</div>
+  {refresh_footer(DATA_DIR / "youtube_recent_videos.csv")}
+</div>
 
 <div class="subsection-header">
   <div class="subsection-eyebrow">1C · CONTROVERSY TRACKER</div>
@@ -2330,6 +2449,8 @@ def build_html(d: dict) -> str:
     comm["sov_sentiment_totals"] = sov_sentiment.get("totals", {})
     yt_vitl = compute_youtube_vitl(d)
     yt_comp = compute_youtube_competitors(d)
+    reddit_posts = compute_reddit_posts(d)
+    yt_videos = compute_youtube_videos(d)
     brand_aware = compute_brand_awareness(d)
     tdp     = compute_tdp_vs_revenue(d)
     op_rec  = compute_operating_recovery(d)
@@ -2566,6 +2687,19 @@ def build_html(d: dict) -> str:
   .corr-interp-block p {{ font-size: 12.5px; color: var(--text-soft); line-height: 1.65; margin-bottom: 8px; }}
   .corr-interp-block strong {{ color: var(--text); font-weight: 700; }}
 
+  /* Section 01 Social — feed widgets (Reddit posts + YouTube videos) */
+  .feed-list {{ display: flex; flex-direction: column; gap: 8px; max-height: 520px;
+                overflow-y: auto; padding-right: 6px; }}
+  .feed-item {{ background: var(--surface2); border: 1px solid var(--border);
+                border-left: 3px solid var(--accent); border-radius: 6px;
+                padding: 10px 14px; }}
+  .feed-row1 {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }}
+  .feed-date {{ font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 600; }}
+  .feed-excerpt {{ font-size: 12.5px; color: var(--text); line-height: 1.5; margin-bottom: 4px; }}
+  .feed-excerpt a {{ color: var(--text); text-decoration: none; }}
+  .feed-excerpt a:hover {{ color: var(--accent); text-decoration: underline; }}
+  .feed-meta {{ font-size: 10.5px; color: var(--muted); font-style: italic; }}
+
   /* Section 01 Social — subsection headers + section caption */
   .section-level-caption {{ background: linear-gradient(180deg, #f8f9f5, #f0f4eb);
                             border: 1px solid #cfdbb9; border-left: 4px solid var(--accent);
@@ -2761,7 +2895,7 @@ def build_html(d: dict) -> str:
 
 <div class="container">
   {render_quick_read(qr)}
-  {render_social_overview(comm, yt_vitl, yt_comp)}
+  {render_social_overview(comm, yt_vitl, yt_comp, reddit_posts, yt_videos)}
   {render_setup(setup, runway)}
   {render_stock_news(events, news, cad_vs_stock)}
   {render_egg_market(egg)}

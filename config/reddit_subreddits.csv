@@ -1,16 +1,24 @@
 subreddit,topic,priority,notes
+VitalFarms,brand_dedicated,core,Dedicated VITL community — highest signal sub
+ValueInvesting,investing,core,Where VITL stock + insider buying gets debated
+stocks,investing,core,Major active VITL ticker discussion (insider Buying Stratospheric thread)
+investing,investing,core,General investing — VITL appears as small-cap discussion
+SmallCapStocks,investing,growth,Direct small-cap focus
+wallstreetbets,investing,growth,
+dividends,investing,growth,
+carnivorediet,carnivore,core,Carnivore-diet community — where the "vital farms is a scam" thread lives (distinct from r/Carnivore)
+Carnivore,carnivore,core,High-quality animal product community
+seedoilfree,health,core,Pasture-raised animal-product positioning + linoleic controversy origin
+nutrition,health,core,
 Cooking,general_food,core,Largest cooking community
 EatCheapAndHealthy,health_value,core,Premium vs value tradeoff
 PaleoDiet,paleo,core,Premium animal product positioning
 keto,keto,core,Pasture-raised messaging resonates
-nutrition,health,core,
-Whole30,paleo,growth,
+Costco,retail,core,Premium-egg discussion in club-channel context
 HealthyFood,health,growth,
+Whole30,paleo,growth,
 mealprep,mealprep,growth,Hard-boiled eggs use case
 slowcooking,cooking,growth,
 loseit,health,growth,
 ZeroWaste,values,growth,Ethical sourcing angle
 sustainability,values,growth,
-Costco,retail,core,Premium-egg discussion in club-channel context
-seedoilfree,health,core,Pasture-raised animal-product positioning
-Carnivore,carnivore,core,High-quality animal product community

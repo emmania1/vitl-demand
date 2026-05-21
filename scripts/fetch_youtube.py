@@ -28,6 +28,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 OUT_CSV             = PROJECT_ROOT / "data" / "youtube_monthly.csv"
 LINOLEIC_OUT_CSV    = PROJECT_ROOT / "data" / "youtube_linoleic_monthly.csv"
 COMPETITORS_OUT_CSV = PROJECT_ROOT / "data" / "youtube_competitors_monthly.csv"
+RECENT_VIDEOS_CSV   = PROJECT_ROOT / "data" / "youtube_recent_videos.csv"
+
+# Filled by _run_query_set() each pass; main() reads it to write recent-videos feed.
+_last_video_detail = pd.DataFrame()
 
 QUERIES = ["vital farms", "pasture raised eggs"]
 # Linoleic / seed-oil controversy decay query set. YouTube AND-search via
@@ -116,7 +120,14 @@ def _run_query_set(yt, queries: list[str], start: datetime, end: datetime,
                 for it in items:
                     vid = it["id"].get("videoId")
                     if not vid or vid in by_id: continue
-                    by_id[vid] = {"published": it["snippet"]["publishedAt"], "query": query}
+                    sn = it.get("snippet", {})
+                    by_id[vid] = {
+                        "published": sn.get("publishedAt", ""),
+                        "query": query,
+                        "title": (sn.get("title") or "").strip(),
+                        "channel": (sn.get("channelTitle") or "").strip(),
+                        "description": (sn.get("description") or "")[:280].strip(),
+                    }
                 collected += len(items)
                 page_token = resp.get("nextPageToken")
                 if not page_token: break
@@ -139,11 +150,25 @@ def _run_query_set(yt, queries: list[str], start: datetime, end: datetime,
         for it in resp.get("items", []):
             by_id[it["id"]]["views"] = int((it.get("statistics") or {}).get("viewCount") or 0)
 
-    rows = [{"published": m["published"], "query": m["query"], "views": m.get("views", 0)}
-            for m in by_id.values()]
+    rows = []
+    for vid, m in by_id.items():
+        rows.append({
+            "video_id":    vid,
+            "published":   m["published"],
+            "query":       m["query"],
+            "title":       m.get("title", ""),
+            "channel":     m.get("channel", ""),
+            "description": m.get("description", ""),
+            "views":       m.get("views", 0),
+            "url":         f"https://www.youtube.com/watch?v={vid}",
+        })
     df = pd.DataFrame(rows)
     df["dt"] = pd.to_datetime(df["published"], utc=True)
     df["month"] = df["dt"].dt.strftime("%Y-%m")
+    # Stash the per-video detail for the recent-videos feed on the dashboard.
+    # _last_video_detail is read by main() after each query set returns.
+    global _last_video_detail
+    _last_video_detail = df.sort_values("dt", ascending=False).copy()
     out = (
         df.groupby(["month", "query"])
           .agg(video_count=("views", "size"), view_sum=("views", "sum"))
@@ -166,9 +191,15 @@ def main() -> int:
     yt = _client(api_key)
     end = datetime.now(timezone.utc)
 
+    all_video_details = []  # accumulate per-video metadata across all passes
+
     # General — 36mo window
     print(f"  ── general pass: {len(QUERIES)} queries × 36mo ──")
     general_df = _run_query_set(yt, QUERIES, end - timedelta(days=365*3), end, MAX_PER_MONTH, "general")
+    if not _last_video_detail.empty:
+        general_videos = _last_video_detail.copy()
+        general_videos["pass"] = "general"
+        all_video_details.append(general_videos)
     if not general_df.empty:
         general_df.to_csv(OUT_CSV, index=False)
         print(f"  ✓ wrote {OUT_CSV.name}  rows={len(general_df)}  "
@@ -196,11 +227,20 @@ def main() -> int:
         if not LINOLEIC_OUT_CSV.exists():
             pd.DataFrame(columns=["month","video_count","view_sum"]).to_csv(LINOLEIC_OUT_CSV, index=False)
 
+    if not _last_video_detail.empty:
+        lin_videos = _last_video_detail.copy()
+        lin_videos["pass"] = "linoleic"
+        all_video_details.append(lin_videos)
+
     # Competitor brands — 36mo window, separate output
     print(f"\n  ── competitor pass: {len(COMPETITOR_BRANDS)} brands × 36mo ──")
     comp_df = _run_query_set(yt, COMPETITOR_BRANDS,
                              end - timedelta(days=365*3), end,
                              max_per_month=20, label="competitor")
+    if not _last_video_detail.empty:
+        comp_videos = _last_video_detail.copy()
+        comp_videos["pass"] = "competitor"
+        all_video_details.append(comp_videos)
     if not comp_df.empty:
         # Tag each row with the brand it came from (use query as brand label)
         comp_df = comp_df.rename(columns={"query": "brand"})
@@ -214,6 +254,21 @@ def main() -> int:
         print(f"  · {COMPETITORS_OUT_CSV.name} preserved (competitor fetch empty; likely quota)")
         if not COMPETITORS_OUT_CSV.exists():
             pd.DataFrame(columns=["month","brand","video_count","view_sum"]).to_csv(COMPETITORS_OUT_CSV, index=False)
+
+    # ── Recent-videos feed (titles + channels + URLs) ────────────────────
+    # Concatenate all per-video metadata across passes, dedupe by video_id,
+    # write the latest 50 sorted by published date. This is what the
+    # dashboard renders as the "Recent VITL Videos" feed.
+    if all_video_details:
+        all_v = pd.concat(all_video_details, ignore_index=True)
+        all_v = all_v.drop_duplicates(subset=["video_id"]).sort_values("dt", ascending=False)
+        out_cols = ["video_id", "published", "title", "channel", "description",
+                    "views", "url", "query", "pass"]
+        all_v[out_cols].head(50).to_csv(RECENT_VIDEOS_CSV, index=False)
+        print(f"  ✓ wrote {RECENT_VIDEOS_CSV.name}  rows={min(50, len(all_v))}  (most-recent VITL videos)")
+    else:
+        if not RECENT_VIDEOS_CSV.exists():
+            pd.DataFrame(columns=["video_id","published","title","channel","description","views","url","query","pass"]).to_csv(RECENT_VIDEOS_CSV, index=False)
 
     return 0
 

@@ -118,6 +118,17 @@ def fetch_one(
             ts = int(row.get("created_utc") or row.get("created", 0))
             if ts >= end_epoch:
                 continue
+            # Build a permalink-style url; Arctic Shift exposes `permalink` for
+            # posts and `link_id`+`id` for comments. Fall back to reconstructing
+            # from sub+id if neither is present.
+            perm = row.get("permalink")
+            if perm and not perm.startswith("http"):
+                url = "https://reddit.com" + perm
+            elif kind == "comment":
+                link_id = (row.get("link_id") or "").replace("t3_", "")
+                url = f"https://reddit.com/r/{row.get('subreddit', sub)}/comments/{link_id}/_/{row.get('id', '')}"
+            else:
+                url = f"https://reddit.com/r/{row.get('subreddit', sub)}/comments/{row.get('id', '')}"
             rows.append({
                 "item_id": row.get("id") or f"{sub}_{ts}_{kind}",
                 "created_utc": ts,
@@ -125,7 +136,11 @@ def fetch_one(
                 "query": query,
                 "kind": kind,
                 "author": (row.get("author") or "").lower(),
+                "title": (row.get("title") or "").strip() if kind == "post" else "",
                 "body": row.get("body") if kind == "comment" else row.get("selftext"),
+                "url": url,
+                "score": int(row.get("score") or row.get("ups") or 0),
+                "num_comments": int(row.get("num_comments") or 0) if kind == "post" else 0,
             })
             newest_ts = max(newest_ts, ts)
         if len(data) < 100 or newest_ts <= after:
