@@ -1273,13 +1273,21 @@ def render_stock_news(events: dict, news: dict, cad_vs_stock: dict) -> str:
 <div class="section-header" id="news">
   <div class="section-num">SECTION 02</div>
   <div class="section-title">Stock &amp; News <span class="muted-cell" style="font-size:11.5px;font-weight:500">· {news.get('total', 0)} articles tracked</span></div>
-  <div class="section-subtitle">The hero overlays meaningful news events on the stock line. Below: topic mix over time, news-cadence vs price, and expandable article log.</div>
+  <div class="section-subtitle">Reaction magnitude check (are bad-news reactions shrinking?) · hero stock+events chart · topic mix over time · cadence vs stock · article log.</div>
 </div>
+
+{chart_card("reactionMagnitudeChart",
+            "Reaction Magnitude on Bad News · 18 months",
+            "Every bad-news event since Q3 25, stock %-reaction on the day. Watch whether reactions shrink across the cycle — selling exhausts before the trough.",
+            "Same event log as the chart below (data/event_reactions.csv). Each bar height = stock day-reaction (%). Color = reaction kind (red/yellow/green).",
+            READS_DIR / "reaction_magnitude_take.md",
+            y_axis_label="Stock day-reaction (%) · green ring = first positive reaction · gray = flat",
+            height_class="big")}
 
 <div class="chart-card">
   <div class="chart-title-row">
-    <h3>VITL Daily Close · 18 months · News Events Overlaid</h3>
-    <div class="chart-subtitle">7 negative-event reactions tracked. The +3.6% April 2 dot is the only positive reaction to bad news in the cycle.</div>
+    <h3>VITL Daily Close · 18 months · News Events + Insider Cluster Overlaid</h3>
+    <div class="chart-subtitle">Colored dots = news events (red/yellow/green by reaction). Green triangles = May 13-15 insider cluster buys.</div>
   </div>
   <div class="axis-label">Y-axis: VITL close ($)</div>
   <div class="chart-wrap tall"><canvas id="eventsChart"></canvas></div>
@@ -1367,10 +1375,10 @@ def render_egg_market(egg: dict) -> str:
 
 {chart_card("eggChart1",
             "Conventional Wholesale vs VITL Retail · 5 years weekly",
-            "Two lines, both in $/dozen, single y-axis. Shows the absolute spread that drives the gap chart below.",
-            "Conventional shell egg = USDA AMS midwest large white (seeded; MARS API fetcher TBD). VITL retail = manual snapshots from in-store checks + earnings-call commentary, monthly forward-filled.",
+            "Two lines, $/dozen. VITL retail line is dashed — flagged as an estimate, not actual scrape data.",
+            "Conventional shell egg = USDA AMS midwest large white (real weekly data, seeded — MARS API fetcher pending). VITL retail = manual step-function estimate from earnings call commentary and management price-cut disclosures · real-time Instacart scrape is a future enhancement.",
             READS_DIR / "conv_vs_vitl_take.md",
-            y_axis_label="Price ($/dozen)",
+            y_axis_label="Price ($/dozen) · solid = real · dashed = estimate",
             height_class="big")}
 
 {chart_card("eggChart2",
@@ -1396,6 +1404,31 @@ def render_egg_market(egg: dict) -> str:
             READS_DIR / "breaker_take.md",
             y_axis_label="Price ($/dozen)",
             height_class="big")}
+
+{chart_card("hpaiCumulativeChart",
+            "HPAI Cumulative Depopulation · 2022 → today",
+            "Running total of birds depopulated since the 2022 outbreak. Each new wave tightens conventional supply.",
+            "USDA APHIS confirmed HPAI commercial-layer cases via fetch_hpai.py. Bird counts approximated at avg 0.25M per detected flock; 2022 first-wave baseline pre-loaded from public reports.",
+            READS_DIR / "hpai_cumulative_take.md",
+            y_axis_label="Cumulative birds depopulated (millions)",
+            height_class="big")}
+
+<div class="chart-card">
+  <div class="chart-title-row">
+    <h3>DOJ Antitrust Watch — Cal-Maine / Versova</h3>
+    <div class="chart-subtitle">Active investigation, no filing yet. Short-term bearish for VITL (forces conventional prices lower → wider gap). Long-term bullish (removes conventional pricing moat).</div>
+  </div>
+  <div class="doj-panel">
+    <div class="doj-status">
+      <span class="badge badge-mid">ACTIVE · No filing yet</span>
+    </div>
+    <div class="doj-body">
+      {load_markdown(READS_DIR / "doj_antitrust.md")['html']}
+    </div>
+  </div>
+  <div class="source-caption"><strong>Source:</strong> WSJ April 17 2026 — DOJ preparing case against largest egg producers for alleged pricing coordination via the Expana benchmark service.</div>
+  {refresh_footer(READS_DIR / "doj_antitrust.md")}
+</div>
 """
 
 
@@ -1424,14 +1457,34 @@ def render_community(comm: dict) -> str:
 <th class="num">Mentions (90d)</th><th class="num">YoY %</th>
 </tr></thead><tbody>{rows_html}</tbody></table></div>"""
 
+    # Brand stat cards — now labeled with total + positive % + negative %
     totals = comm.get("totals") or {}
+    sov_totals = comm.get("sov_sentiment_totals") or {}
     brand_totals_html = ""
     if totals:
         top = sorted(totals.items(), key=lambda kv: kv[1], reverse=True)
-        brand_totals_html = "<div class=\"stat-row\">" + "".join(
-            f'<div class="stat-card"><div class="stat-val">{fmt_num(v)}</div>'
-            f'<div class="stat-lbl">{k}</div></div>' for k, v in top
-        ) + "</div>"
+        cards = []
+        for k, v in top:
+            sent = sov_totals.get(k, {})
+            pos = sent.get("pos", 0); neg = sent.get("neg", 0); total = sent.get("total", v) or v
+            pos_pct = round(pos / total * 100, 0) if total > 0 else 0
+            neg_pct = round(neg / total * 100, 0) if total > 0 else 0
+            cards.append(
+                f'<div class="stat-card">'
+                f'<div class="stat-val">{fmt_num(v)}</div>'
+                f'<div class="stat-lbl">{k}</div>'
+                f'<div class="muted-cell" style="font-size:10.5px;margin-top:4px">'
+                f'<span style="color:#2a5a30">+{pos_pct:.0f}% pos</span> · '
+                f'<span style="color:#b34738">{neg_pct:.0f}% neg</span></div>'
+                f'</div>'
+            )
+        brand_totals_html = '<div class="stat-row">' + "".join(cards) + "</div>"
+        brand_totals_html += (
+            '<div class="callout-strip" style="margin-top:8px"><strong>Numbers explained:</strong> '
+            'Each card shows total Reddit posts + comments mentioning the brand over the 36-month window. '
+            'Pos/neg % from dictionary-based sentiment classifier on body text. '
+            'VITL holding ≥50% share of voice + positive % stable = category dominance intact.</div>'
+        )
 
     return f"""
 <div class="section-header" id="community">
@@ -1452,13 +1505,33 @@ def render_community(comm: dict) -> str:
 </div>
 
 {chart_card("brandSovChart",
-            "Brand Share of Voice — Pasture-Raised Egg Set · 36 months weekly",
-            "All 6 brands (Vital Farms, Handsome Brook, Alexandre, Pete & Gerry's, Happy Egg, Organic Valley) stacked. Tests whether competitors gained mindshare during the ERP gap.",
-            "Arctic Shift title + body sweep per brand. Brands with 0 hits shown as flat zero-lines so the universe is always visible.",
+            "Brand Share of Voice · Pos / Neu / Neg Stacked · 36 months weekly",
+            "Total volume = mindshare. Pos/neg split = brand health. Tracks whether VITL holds high positive % even as competitors close the volume gap.",
+            "Arctic Shift title + body + comments sweep per brand. Dictionary-based sentiment classifier on body text (pos AND no neg → positive · neg AND no pos → negative · both/neither → neutral). Brands with 0 hits shown as flat zero-stacks.",
             READS_DIR / "brand_sov_take.md",
-            y_axis_label="Weekly mention count across 15 subreddits (stacked)",
+            y_axis_label="Weekly mentions stacked by sentiment (positive / neutral / negative)",
             height_class="big")}
 {brand_totals_html}
+
+{chart_card("brandAwarenessChart",
+            "Brand Awareness Trajectory · Annual (aided %)",
+            "Aided brand awareness from earnings call disclosures. +800bps YoY in 2025 — counter-evidence to the share-loss narrative.",
+            "Manual extract from earnings calls + investor presentations. Annual cadence. 2026E pending FY26 print disclosure.",
+            READS_DIR / "brand_awareness_take.md",
+            y_axis_label="Aided brand awareness (%)",
+            height_class="big")}
+
+<div class="chart-card">
+  <div class="chart-title-row">
+    <h3>Household Penetration Tracker {datestamp_chip(load_markdown(READS_DIR / "household_penetration.md")['datestamp'])}</h3>
+    <div class="chart-subtitle">The leading indicator for whether the funnel is still pulling in new buyers.</div>
+  </div>
+  <div class="hh-pen-card">
+    {load_markdown(READS_DIR / "household_penetration.md")['html']}
+  </div>
+  <div class="source-caption"><strong>Source:</strong> Quarterly call disclosures + investor presentations · updated manually each quarter in <code>reads/household_penetration.md</code>.</div>
+  {refresh_footer(READS_DIR / "household_penetration.md")}
+</div>
 
 {chart_card("linoleicChart",
             "Linoleic-Acid Controversy Decay · 12 months weekly",
@@ -1645,11 +1718,17 @@ def render_correlation(corr: dict) -> str:
             trs += "<tr>" + "".join(cells) + "</tr>"
         body = f'<div class="table-card corr-table-card"><table class="corr-table"><thead><tr>{ths}</tr></thead><tbody>{trs}</tbody></table></div>'
 
+    interp_md = load_markdown(READS_DIR / "correlation_interpretation.md")
     return f"""
 <div class="section-header" id="correlation">
-  <div class="section-num">SECTION 06</div>
+  <div class="section-num">SECTION 10</div>
   <div class="section-title">Correlation Snapshot</div>
-  <div class="section-subtitle">Pairwise Pearson correlations across the 5 most important signals. Numbers are over the maximum overlapping window per pair.</div>
+  <div class="section-subtitle">Pairwise Pearson correlations across the 5 most important signals. Plain-English read above the matrix; actionability ranking below.</div>
+</div>
+
+<div class="corr-interp-block">
+  <div class="take-eyebrow">PLAIN-ENGLISH READ {datestamp_chip(interp_md['datestamp'])}</div>
+  {interp_md['html']}
 </div>
 
 {body}
@@ -1949,6 +2028,8 @@ def build_html(d: dict) -> str:
     hpai_cum = compute_hpai_cumulative(d)
     comm    = compute_community(d)
     sov_sentiment = compute_sov_sentiment(d)
+    # Attach sentiment totals to comm so render_community can show pos/neg % per brand
+    comm["sov_sentiment_totals"] = sov_sentiment.get("totals", {})
     brand_aware = compute_brand_awareness(d)
     tdp     = compute_tdp_vs_revenue(d)
     op_rec  = compute_operating_recovery(d)
@@ -2172,6 +2253,34 @@ def build_html(d: dict) -> str:
   .setup-card-header {{ margin-bottom: 12px; }}
   .setup-card-title {{ font-size: 14px; font-weight: 700; }}
   .setup-kpi {{ font-size: 12px; color: var(--accent); font-weight: 700; margin-top: 4px; letter-spacing: 0.3px; }}
+  /* Correlation interpretation block (above matrix) */
+  .corr-interp-block {{ background: linear-gradient(180deg, #f8f9f5, #fdf3d3);
+                        border: 1px solid #e6d28c; border-radius: 10px;
+                        padding: 16px 22px; margin-bottom: 14px; }}
+  .corr-interp-block ul {{ list-style: none; padding-left: 0; font-size: 12.5px;
+                           color: var(--text-soft); line-height: 1.7; }}
+  .corr-interp-block ul li {{ padding: 4px 0 4px 16px; position: relative; }}
+  .corr-interp-block ul li:before {{ content: "›"; position: absolute; left: 0; color: #8a6b10; font-weight: 700; }}
+  .corr-interp-block p {{ font-size: 12.5px; color: var(--text-soft); line-height: 1.65; margin-bottom: 8px; }}
+  .corr-interp-block strong {{ color: var(--text); font-weight: 700; }}
+
+  /* Household penetration card */
+  .hh-pen-card {{ background: var(--surface2); border-left: 4px solid var(--accent);
+                  border-radius: 6px; padding: 14px 18px; margin: 8px 0; }}
+  .hh-pen-card p {{ font-size: 13px; color: var(--text-soft); line-height: 1.65; margin-bottom: 8px; }}
+  .hh-pen-card p:first-child {{ font-size: 26px; font-weight: 700; color: var(--accent); margin-bottom: 8px; letter-spacing: -0.4px; }}
+  .hh-pen-card p:first-child strong {{ color: var(--accent); }}
+  .hh-pen-card p:last-child {{ margin-bottom: 0; }}
+  .hh-pen-card strong {{ color: var(--text); font-weight: 700; }}
+
+  /* DOJ antitrust panel */
+  .doj-panel {{ background: var(--surface2); border-left: 4px solid var(--neg);
+                border-radius: 6px; padding: 14px 18px; margin: 8px 0; }}
+  .doj-status {{ margin-bottom: 8px; }}
+  .doj-body p {{ font-size: 12.5px; color: var(--text-soft); line-height: 1.6; margin-bottom: 8px; }}
+  .doj-body p:last-child {{ margin-bottom: 0; }}
+  .doj-body strong {{ color: var(--text); font-weight: 700; }}
+
   /* Valuation cards row */
   .val-cards-row {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 8px 0 12px; }}
   @media (max-width: 1024px) {{ .val-cards-row {{ grid-template-columns: 1fr 1fr; }} }}
@@ -2457,9 +2566,53 @@ def build_html(d: dict) -> str:
       }},
     }});
 
-    // ── Section 02 — Events chart, Topic Mix Over Time, Cadence vs Stock ─
+    // ── Section 02 — Reaction Magnitude hero chart ───────────────────────
+    const rm = d.react_mag;
+    const rmLabels = rm.events.map(e => `${{e.date.slice(5)}} · ${{e.label.slice(0, 30)}}`);
+    const rmData = rm.events.map(e => e.reaction_pct);
+    const rmColors = rm.events.map(e => {{
+      if (e.reaction_pct === null) return '#999';
+      if (e.reaction_pct > 0) return d.reaction_colors.positive;
+      if (Math.abs(e.reaction_pct) < 1) return d.reaction_colors.flat;
+      return d.reaction_colors.negative;
+    }});
+    const rmBorders = rm.events.map(e => (e.reaction_pct !== null && e.reaction_pct > 0) ? d.reaction_colors.positive : 'transparent');
+    new Chart(document.getElementById('reactionMagnitudeChart'), {{
+      type: 'bar',
+      data: {{
+        labels: rmLabels,
+        datasets: [{{
+          label: 'Stock reaction (%)', data: rmData,
+          backgroundColor: rmColors,
+          borderColor: rmBorders, borderWidth: 3, borderRadius: 3,
+        }}],
+      }},
+      options: {{
+        responsive: true, maintainAspectRatio: false,
+        plugins: {{
+          legend: {{ display: false }},
+          tooltip: {{ callbacks: {{
+            label: ctx => (ctx.raw === null ? '—' : (ctx.raw > 0 ? '+' : '') + ctx.raw.toFixed(1) + '% on event day'),
+          }} }},
+        }},
+        scales: {{
+          x: {{ grid: {{ display: false }}, ticks: {{ font: {{ size: 9.5 }}, maxRotation: 40, minRotation: 30 }} }},
+          y: {{ grid: {{ color: 'rgba(0,0,0,0.04)' }}, ticks: {{ font: {{ size: 10 }}, callback: v => v + '%' }},
+                title: {{ display: true, text: 'Stock reaction on event day (%)', font: {{ size: 10 }} }} }},
+        }},
+      }},
+    }});
+
+    // ── Section 02 — Events chart + insider triangle overlays ────────────
     const ev = d.events;
     const eventDots = ev.events.map(e => ({{x: e.date, y: e.close}}));
+    // Insider cluster triangles — pull date + close-on-that-day from stock series
+    const closeByDate = {{}};
+    ev.dates.forEach((dt, i) => closeByDate[dt] = ev.close[i]);
+    const insiderDates = (d.setup.insiders || []).map(i => i.date);
+    const insiderDots = insiderDates
+      .map(dt => ({{x: dt, y: closeByDate[dt] || null}}))
+      .filter(p => p.y !== null);
     new Chart(document.getElementById('eventsChart'), {{
       type: 'line',
       data: {{
@@ -2467,12 +2620,16 @@ def build_html(d: dict) -> str:
         datasets: [
           {{ label: 'VITL Close', data: ev.close, borderColor: A,
              backgroundColor: 'rgba(46,90,60,0.06)', borderWidth: 2, pointRadius: 0,
-             tension: 0.15, fill: true, order: 2 }},
+             tension: 0.15, fill: true, order: 3 }},
           {{ label: 'News Events', data: eventDots, showLine: false,
              pointRadius: 11, pointHoverRadius: 14,
              pointBackgroundColor: ev.events.map(e => d.reaction_colors[e.reaction_kind] || '#999'),
              pointBorderColor: '#fff', pointBorderWidth: 3,
              order: 1, parsing: false }},
+          {{ label: 'Insider Cluster', data: insiderDots, showLine: false,
+             pointStyle: 'triangle', pointRadius: 10, pointHoverRadius: 13,
+             pointBackgroundColor: A, pointBorderColor: '#fff', pointBorderWidth: 2,
+             order: 2, parsing: false }},
         ],
       }},
       options: {{
@@ -2494,6 +2651,11 @@ def build_html(d: dict) -> str:
                   const e = ev.events[ctx.dataIndex];
                   if (!e) return '';
                   return [e.headline, e.summary].filter(Boolean);
+                }}
+                if (ctx.datasetIndex === 2) {{
+                  const ins = d.setup.insiders[ctx.dataIndex];
+                  if (!ins) return 'Insider buy';
+                  return `Insider buy · ${{ins.name}} (${{ins.title}}) · ${{ins.shares.toLocaleString()}} sh @ $${{ins.price.toFixed(2)}}`;
                 }}
                 return '$' + Number(ctx.raw).toFixed(2);
               }},
@@ -2657,34 +2819,108 @@ def build_html(d: dict) -> str:
       }},
     }});
 
-    // ── Section 04 — SoV + Linoleic + Controversy vs Stock + TDP vs Rev ──
-    const sov = d.comm.brand_sov;
-    const sovDatasets = d.brand_order.filter(b => sov.brands && sov.brands[b]).map(b => ({{
-      label: b, data: sov.brands[b], borderColor: d.brand_colors[b] || '#999',
-      backgroundColor: (d.brand_colors[b] || '#999') + '55',
-      borderWidth: 1.5, fill: true, tension: 0.2, pointRadius: 0,
-    }}));
-    if (sovDatasets.length > 0 && sov.weeks.length > 0) {{
+    // ── Section 03 — HPAI Cumulative ──────────────────────────────────────
+    const hpc = d.hpai_cum;
+    new Chart(document.getElementById('hpaiCumulativeChart'), {{
+      type: 'line',
+      data: {{
+        labels: hpc.months,
+        datasets: [{{
+          label: 'Cumulative birds depopulated (M)', data: hpc.cumulative,
+          borderColor: NEG, backgroundColor: 'rgba(201,93,74,0.10)',
+          borderWidth: 2.2, tension: 0.15, fill: true, pointRadius: 0,
+        }}],
+      }},
+      options: {{
+        responsive: true, maintainAspectRatio: false,
+        plugins: {{ legend: {{ display: false }} }},
+        scales: {{
+          x: {{ grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }}, maxTicksLimit: 10, autoSkip: true }} }},
+          y: {{ grid: {{ color: 'rgba(0,0,0,0.04)' }},
+                ticks: {{ font: {{ size: 10 }}, callback: v => v + 'M' }},
+                title: {{ display: true, text: 'Cumulative birds (millions)', font: {{ size: 10 }} }} }},
+        }},
+      }},
+    }});
+
+    // ── Section 04 — SoV pos/neu/neg stacked + Linoleic + ... ────────────
+    const sovS = d.sov_sentiment;
+    // Stack one VITL-only sentiment-breakout series + 5 competitor totals as flat areas.
+    // Use a bar chart with sentiment stacks (pos / neu / neg) per week so the
+    // sentiment composition is legible. Each VITL bar has 3 stacks (pos/neu/neg)
+    // colored green/gray/red. Competitor brands shown as overlay line areas so
+    // the share dynamic remains visible across all 6 brands.
+    const sovDatasets = [];
+    const vitl = sovS.brands && sovS.brands['Vital Farms'];
+    if (vitl) {{
+      sovDatasets.push(
+        {{ label: 'VITL · positive', data: vitl.pos, backgroundColor: '#2a7a30',
+           stack: 'vitl', type: 'bar', borderRadius: 1 }},
+        {{ label: 'VITL · neutral',  data: vitl.neu, backgroundColor: '#bdbab1',
+           stack: 'vitl', type: 'bar', borderRadius: 1 }},
+        {{ label: 'VITL · negative', data: vitl.neg, backgroundColor: '#b34738',
+           stack: 'vitl', type: 'bar', borderRadius: 1 }},
+      );
+    }}
+    // 5 competitor brands rendered as overlay total-volume line/area
+    ['Handsome Brook','Alexandre',"Pete & Gerry's",'Happy Egg','Organic Valley'].forEach(b => {{
+      const arr = sovS.brands && sovS.brands[b] && sovS.brands[b].total;
+      if (!arr) return;
+      sovDatasets.push({{
+        label: b, data: arr, borderColor: d.brand_colors[b] || '#999',
+        backgroundColor: (d.brand_colors[b] || '#999') + '00',
+        type: 'line', borderWidth: 1.5, tension: 0.3, pointRadius: 0,
+        fill: false, stack: 'overlay',
+      }});
+    }});
+    if (sovDatasets.length > 0 && sovS.weeks.length > 0) {{
       new Chart(document.getElementById('brandSovChart'), {{
-        type: 'line',
-        data: {{ labels: sov.weeks, datasets: sovDatasets }},
+        type: 'bar',
+        data: {{ labels: sovS.weeks, datasets: sovDatasets }},
         options: {{
           responsive: true, maintainAspectRatio: false,
           plugins: {{
-            legend: {{ position: 'bottom', labels: {{ font: {{ size: 11 }} }} }},
+            legend: {{ position: 'bottom', labels: {{ font: {{ size: 10.5 }} }} }},
             refLine: {{
               refs: [{{ date: '2026-02-26', color: NEG, width: 2, dash: [], label: 'Feb 26 print' }}],
               bands: [{{ start: '2025-05-08', end: '2026-02-26', color: 'rgba(201,93,74,0.06)' }}],
             }},
+            tooltip: {{ mode: 'index', intersect: false }},
           }},
           scales: {{
-            x: {{ grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }}, maxTicksLimit: 12, autoSkip: true }} }},
+            x: {{ stacked: true, grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }}, maxTicksLimit: 12, autoSkip: true }} }},
             y: {{ stacked: true, grid: {{ color: 'rgba(0,0,0,0.04)' }}, ticks: {{ font: {{ size: 10 }} }},
-                  title: {{ display: true, text: 'Weekly mentions across 15 subs', font: {{ size: 10 }} }} }},
+                  title: {{ display: true, text: 'Weekly mentions (VITL stacked by sentiment; competitors overlaid as lines)', font: {{ size: 10 }} }} }},
           }},
         }},
       }});
     }}
+
+    // Brand Awareness — annual line
+    const ba = d.brand_aware;
+    new Chart(document.getElementById('brandAwarenessChart'), {{
+      type: 'line',
+      data: {{
+        labels: ba.years,
+        datasets: [{{
+          label: 'Aided brand awareness (%)', data: ba.values, borderColor: A,
+          backgroundColor: 'rgba(46,90,60,0.08)', borderWidth: 2.5, tension: 0.2,
+          fill: true, pointRadius: 7, pointHoverRadius: 9,
+          pointBackgroundColor: A, pointBorderColor: '#fff', pointBorderWidth: 2,
+          spanGaps: true,
+        }}],
+      }},
+      options: {{
+        responsive: true, maintainAspectRatio: false,
+        plugins: {{ legend: {{ display: false }},
+                    tooltip: {{ callbacks: {{ label: ctx => ctx.raw == null ? 'TBD (pending FY26 print)' : ctx.raw.toFixed(0) + '%' }} }} }},
+        scales: {{
+          x: {{ grid: {{ display: false }}, ticks: {{ font: {{ size: 11 }} }} }},
+          y: {{ grid: {{ color: 'rgba(0,0,0,0.04)' }}, ticks: {{ font: {{ size: 10 }}, callback: v => v + '%' }},
+                title: {{ display: true, text: 'Aided brand awareness (%)', font: {{ size: 10 }} }} }},
+        }},
+      }},
+    }});
 
     const lin = d.comm.linoleic;
     const linDatasets = [
