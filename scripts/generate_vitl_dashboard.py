@@ -141,6 +141,8 @@ def load_all() -> dict:
         "category_growth":    safe_read(DATA_DIR / "category_growth.csv"),
         # pass-12 — category supply (how crowded the category got)
         "category_supply":    safe_read(DATA_DIR / "category_supply_timeline.csv"),
+        # pass-13 — top-of-page supply quantification (excess vs retail; amendments)
+        "supply_quant":       safe_read(DATA_DIR / "vitl_supply_quantification.csv"),
     }
 
 
@@ -1010,6 +1012,87 @@ def compute_category_growth(d: dict) -> dict:
     }
 
 
+def compute_supply_quantification(d: dict) -> dict:
+    """TOP PANEL — quantifies how over-supplied VITL is vs retail demand and
+    when farmer amendments resolve it. Q1 26 actual through FY27 norm.
+
+    Returns dict with:
+      quarters, retail (M dozens), baseline_breaker (M, baseline ~5%),
+      excess_breaker (M, the over-supply), supply_cost (M $),
+      kinds (actual/estimate/projection), notes,
+      hero_tiles list of 4 hero metrics
+    """
+    df = d.get("supply_quant", pd.DataFrame())
+    if df.empty:
+        return {"quarters": [], "retail": [], "baseline_breaker": [],
+                "excess_breaker": [], "supply_cost": [],
+                "kinds": [], "notes": [], "hero_tiles": [],
+                "breaker_now": 0.08, "breaker_norm_low": 0.50, "breaker_norm_high": 1.00,
+                "retail_price_per_dozen": 5.00}
+    df = df.copy()
+    quarters         = df["quarter"].astype(str).tolist()
+    retail           = df["retail_volume_m"].astype(float).round(1).tolist()
+    baseline_breaker = df["baseline_breaker_m"].astype(float).round(1).tolist()
+    excess_breaker   = df["excess_breaker_m"].astype(float).round(1).tolist()
+    supply_cost      = df["supply_mgmt_cost_m"].astype(float).round(1).tolist()
+    kinds            = df["kind"].astype(str).tolist() if "kind" in df.columns else ["estimate"] * len(df)
+    notes            = df["note"].astype(str).tolist() if "note" in df.columns else [""] * len(df)
+    production       = df["production_m"].astype(float).round(1).tolist()
+
+    # Hero tiles: Q1 (actual), Q2E (trough), Q3E (recovery), Capacity removed
+    # Compute % of production for each row
+    def pct(excess: float, prod: float) -> float:
+        return round((excess / prod) * 100, 1) if prod else 0.0
+
+    tiles = []
+    # Tile 1 — Q1 actual
+    tiles.append({
+        "label":  f"{quarters[0]} excess (actual)",
+        "value":  f"{excess_breaker[0]:.0f}M",
+        "sub":    f"{pct(excess_breaker[0], production[0])}% of production · ${supply_cost[0]:.1f}M supply mgmt hit",
+        "tone":   "neg",
+    })
+    # Tile 2 — Q2 trough
+    tiles.append({
+        "label":  f"{quarters[1]} excess (guided trough)",
+        "value":  f"{excess_breaker[1]:.0f}M",
+        "sub":    f"{pct(excess_breaker[1], production[1])}% of production · ~${supply_cost[1]:.0f}M supply mgmt guided",
+        "tone":   "neg",
+    })
+    # Tile 3 — Q3 inflection
+    tiles.append({
+        "label":  f"{quarters[2]} expected (post-amendments)",
+        "value":  f"{excess_breaker[2]:.0f}M",
+        "sub":    f"baseline 5% · farmer amendments take effect",
+        "tone":   "pos",
+    })
+    # Tile 4 — Capacity removed (annualized: Q1 production - Q3 production = 4M/quarter × 4)
+    capacity_removed_annual = round((production[0] - production[2]) * 4, 1)
+    tiles.append({
+        "label":  "Capacity removed via amendments",
+        "value":  f"~{capacity_removed_annual:.0f}M",
+        "sub":    f"dozens annually · ≈6-8 farmer contracts",
+        "tone":   "pos",
+    })
+
+    return {
+        "quarters":         quarters,
+        "retail":           retail,
+        "baseline_breaker": baseline_breaker,
+        "excess_breaker":   excess_breaker,
+        "supply_cost":      supply_cost,
+        "kinds":            kinds,
+        "notes":            notes,
+        "production":       production,
+        "hero_tiles":       tiles,
+        # Breaker price inset (today vs historical norm)
+        "breaker_now":          0.08,
+        "breaker_norm_low":     0.50,
+        "breaker_norm_high":    1.00,
+        "retail_price_per_dozen": 5.00,
+    }
+
+
 def compute_reddit_posts(d: dict) -> list:
     """Latest 30 Vital Farms posts/comments with title or body excerpt + URL + sentiment."""
     df = d["reddit_posts"]
@@ -1409,6 +1492,105 @@ def render_three_damages() -> str:
 <div class="three-damages">
   <div class="damages-eyebrow">THREE DAMAGES · STATUS {datestamp_chip(md['datestamp'])}</div>
   <div class="damages-grid">{cols_html}</div>
+</div>
+</div>
+"""
+
+
+def render_supply_quantification_top(supply_q: dict) -> str:
+    """TOP PANEL — VITL Supply Quantification.
+
+    Quantifies excess production vs retail demand and when farmer amendments
+    resolve it. Stacked bars (retail / baseline breaker / excess breaker) with
+    overlay line for supply mgmt cost ($M, right axis). Q1 26 actual through
+    FY27 norm. 4-paragraph caption verbatim from analyst spec.
+    """
+    if not supply_q.get("quarters"):
+        return ""
+
+    tiles = supply_q["hero_tiles"]
+    tiles_html = ""
+    for t in tiles:
+        tone_cls = "neg" if t["tone"] == "neg" else "pos"
+        tiles_html += f"""
+<div class="hero-tile">
+  <div class="hero-label">{t['label']}</div>
+  <div class="hero-val {tone_cls}">{t['value']}</div>
+  <div class="hero-sub">{t['sub']}</div>
+</div>"""
+
+    breaker_now = supply_q["breaker_now"]
+    breaker_lo  = supply_q["breaker_norm_low"]
+    breaker_hi  = supply_q["breaker_norm_high"]
+    retail_price = supply_q["retail_price_per_dozen"]
+
+    return f"""
+<div class="container">
+<div class="chart-card supply-quant-card">
+  <div class="chart-title-row">
+    <div class="title-with-badge">
+      <h3>How Much Are They Over-Supplied — And When Does It Resolve?</h3>
+      <span class="new-pill">NEW</span>
+    </div>
+    <div class="chart-subtitle">
+      The actual operational picture quarter-by-quarter. Excess production above retail demand is what gets dumped at breaker prices. Farmer amendments close the gap.
+    </div>
+  </div>
+
+  <div class="hero-row" style="grid-template-columns:repeat(4, 1fr);margin-top:10px;margin-bottom:14px">
+    {tiles_html}
+  </div>
+
+  <div class="chart-wrap big"><canvas id="supplyQuantChart"></canvas></div>
+
+  <div class="breaker-inset">
+    <div class="breaker-inset-eyebrow">BREAKER (DUMP) PRICE — WHY EVERY EXCESS DOZEN HURTS</div>
+    <div class="breaker-inset-row">
+      <div class="breaker-cell">
+        <div class="breaker-cell-label">Today</div>
+        <div class="breaker-cell-val neg">${breaker_now:.2f}<span class="breaker-unit">/doz</span></div>
+      </div>
+      <div class="breaker-arrow">vs</div>
+      <div class="breaker-cell">
+        <div class="breaker-cell-label">Historical norm</div>
+        <div class="breaker-cell-val pos">${breaker_lo:.2f}–${breaker_hi:.2f}<span class="breaker-unit">/doz</span></div>
+      </div>
+      <div class="breaker-arrow">vs</div>
+      <div class="breaker-cell">
+        <div class="breaker-cell-label">VITL retail price</div>
+        <div class="breaker-cell-val pos">${retail_price:.2f}<span class="breaker-unit">/doz</span></div>
+      </div>
+      <div class="breaker-cell wide">
+        <div class="breaker-cell-label">Margin lost per dumped dozen</div>
+        <div class="breaker-cell-val neg">≈ ${retail_price - breaker_now - 0.72:.2f}</div>
+        <div class="breaker-cell-sub">(retail price − breaker − ~$0.72 cost-to-fill)</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="source-caption">
+    <strong>Source:</strong> Q1 2026 earnings call (May 7 2026) — supply mgmt disclosures ($4.9M Q1 hit, ~$23M Q2 guide, farmer amendment program described as "voluntary" and "in progress"). Q3-Q4 and FY27 norm assume amendments achieve mid-case 4M dozens/yr capacity removal. Retail volume estimates back-solve from FY guidance midpoint $824M / ($5.00/doz proxy).
+  </div>
+
+  {data_take(meaning=(
+      "<strong>What this shows.</strong> VITL produces roughly 40M dozens per quarter from their locked-in farmer contracts. "
+      "Retail demand has been around 33-37M depending on the cycle, leaving 3-5M dozens of excess that gets dumped at breaker "
+      "($0.08/dozen) instead of sold at retail ($5/dozen). Each dumped dozen loses about $4.20 of margin vs selling retail."
+      "<br><br>"
+      "<strong>Why this matters.</strong> Q2 is the worst quarter because amendments haven't fully kicked in yet — roughly "
+      "5M excess dozens dumped, costing $20M in gross profit. Q3 should see excess drop to zero as farmer amendments remove "
+      "~4M dozens of annual capacity from the system. That's the mechanical recovery, worth roughly $20M of quarterly margin "
+      "recovery vs Q2 — without needing breaker prices to recover."
+      "<br><br>"
+      "<strong>Where this fits.</strong> This is the operational supply picture, not the macro cycle. The macro cycle (breaker "
+      "price, layer flock, HPAI) is in Section 04. This panel quantifies how much supply VITL specifically has versus how "
+      "much they can sell, and what the farmer amendment program does to close the gap."
+      "<br><br>"
+      "<strong>Watchpoint.</strong> The biggest unknown is how many farmer amendments are actually signed today. Management "
+      "said amendments are <em>'voluntary'</em> and <em>'in progress'</em> but didn't disclose the percentage of the network. "
+      "If amendments come in slower than 4M dozens by Q3, the recovery extends. Q2 print on August 6 should give first hard "
+      "data on amendment pace."
+  ))}
 </div>
 </div>
 """
@@ -3271,6 +3453,7 @@ def build_html(d: dict) -> str:
     cust_metrics = compute_customer_metrics(d)
     cat_growth = compute_category_growth(d)
     cat_supply = compute_category_supply(d)
+    supply_quant = compute_supply_quantification(d)
     brand_aware = compute_brand_awareness(d)
     tdp     = compute_tdp_vs_revenue(d)
     op_rec  = compute_operating_recovery(d)
@@ -3300,6 +3483,7 @@ def build_html(d: dict) -> str:
         "trends":         trends,
         "cat_growth":     cat_growth,
         "cat_supply":     cat_supply,
+        "supply_quant":   supply_quant,
         "brand_aware":    brand_aware,
         "tdp":            tdp,
         "op_rec":         op_rec,
@@ -3437,6 +3621,44 @@ def build_html(d: dict) -> str:
   .source-caption code {{ color: var(--accent); font-family: 'SF Mono', Menlo, Consolas, monospace;
                           font-size: 10.5px; font-style: normal;
                           background: rgba(46,90,60,0.08); padding: 1px 5px; border-radius: 3px; }}
+
+  /* Supply quantification top panel — NEW badge + breaker inset */
+  .supply-quant-card {{ border-left: 5px solid var(--neg);
+                        box-shadow: 0 2px 8px rgba(201,93,74,0.08);
+                        margin-bottom: 26px; }}
+  .title-with-badge {{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }}
+  .new-pill {{ display: inline-block; padding: 3px 9px; border-radius: 999px;
+               background: var(--neg); color: #fff; font-size: 9.5px;
+               font-weight: 700; letter-spacing: 1.0px;
+               box-shadow: 0 1px 3px rgba(201,93,74,0.3); }}
+  .breaker-inset {{ background: #fdfbf2; border: 1px dashed var(--border-strong);
+                    border-radius: 8px; padding: 12px 16px; margin-top: 14px;
+                    margin-bottom: 6px; }}
+  .breaker-inset-eyebrow {{ font-size: 10px; font-weight: 700;
+                            color: var(--neg); letter-spacing: 1.2px; margin-bottom: 10px; }}
+  .breaker-inset-row {{ display: grid;
+                        grid-template-columns: 1fr auto 1fr auto 1fr 1.4fr;
+                        gap: 10px; align-items: center; }}
+  @media (max-width: 900px) {{
+    .breaker-inset-row {{ grid-template-columns: 1fr 1fr; }}
+    .breaker-arrow {{ display: none; }}
+  }}
+  .breaker-cell {{ display: flex; flex-direction: column; }}
+  .breaker-cell.wide {{ border-left: 1px solid var(--border);
+                        padding-left: 14px; margin-left: 6px; }}
+  .breaker-cell-label {{ font-size: 10px; color: var(--muted);
+                         text-transform: uppercase; letter-spacing: 0.7px;
+                         font-weight: 700; margin-bottom: 4px; }}
+  .breaker-cell-val {{ font-size: 18px; font-weight: 700; letter-spacing: -0.4px;
+                       line-height: 1.1; }}
+  .breaker-cell-val.pos {{ color: var(--accent); }}
+  .breaker-cell-val.neg {{ color: var(--neg); }}
+  .breaker-unit {{ font-size: 11px; font-weight: 500; color: var(--muted);
+                   margin-left: 3px; letter-spacing: 0; }}
+  .breaker-cell-sub {{ font-size: 10px; color: var(--muted);
+                       margin-top: 3px; font-style: italic; }}
+  .breaker-arrow {{ font-size: 12px; color: var(--muted); font-weight: 700;
+                    align-self: center; }}
 
   .chart-take {{ background: linear-gradient(180deg, #f8f9f5, #f0f4eb);
                  border: 1px solid #cfdbb9; border-left: 4px solid var(--accent);
@@ -3752,6 +3974,7 @@ def build_html(d: dict) -> str:
 
 {render_top_callout()}
 {render_three_damages()}
+{render_supply_quantification_top(supply_quant)}
 
 <div class="container">
   {render_quick_read(qr)}
@@ -3836,6 +4059,184 @@ def build_html(d: dict) -> str:
     const d = window.__vitl;
     const A = d.accent, A2 = d.accent2, A3 = d.accent3, NEG = d.accent_neg;
     const PURPLE = d.purple, BROWN = d.brown, BLUE = d.blue;
+
+    // ── TOP PANEL — Supply Quantification ────────────────────────────────
+    // Stacked bars: retail (green) + baseline breaker ~5% (gray) +
+    // excess breaker (red). Overlay line for supply mgmt cost ($M, right axis).
+    // Annotations: Q2 trough · Q3 inflection · "Mechanical recovery: $20M margin"
+    const sq = d.supply_quant;
+    const sqEl = document.getElementById('supplyQuantChart');
+    if (sqEl && sq && sq.quarters && sq.quarters.length > 0) {{
+      // Find Q2 (trough) and Q3 (inflection) indices
+      const idxQ2 = sq.quarters.findIndex(q => q.includes('Q2'));
+      const idxQ3 = sq.quarters.findIndex(q => q.includes('Q3'));
+
+      // Custom plugin: Q2 trough banner + Q3 inflection arrow + $20M recovery label
+      const supplyAnnotPlugin = {{
+        id: 'supplyAnnot',
+        afterDatasetsDraw(chart) {{
+          const {{ ctx, scales, chartArea }} = chart;
+          if (!scales.x || !chartArea) return;
+          ctx.save();
+
+          // Q2 TROUGH banner (semi-transparent red band over Q2 column)
+          if (idxQ2 >= 0) {{
+            const meta = chart.getDatasetMeta(0);
+            const bar = meta.data[idxQ2];
+            if (bar) {{
+              const cx = bar.x;
+              // Top label
+              ctx.fillStyle = NEG;
+              ctx.font = 'bold 10px Inter, system-ui, sans-serif';
+              ctx.textAlign = 'center';
+              ctx.fillText('▼ TROUGH', cx, chartArea.top + 12);
+              ctx.font = '9.5px Inter, system-ui, sans-serif';
+              ctx.fillStyle = '#7a3d33';
+              ctx.fillText('~$23M supply mgmt', cx, chartArea.top + 25);
+            }}
+          }}
+
+          // Q3 INFLECTION marker + recovery arrow Q2 → Q3
+          if (idxQ2 >= 0 && idxQ3 >= 0) {{
+            const meta = chart.getDatasetMeta(0);
+            const q2bar = meta.data[idxQ2];
+            const q3bar = meta.data[idxQ3];
+            if (q2bar && q3bar) {{
+              const yMid = chartArea.top + (chartArea.bottom - chartArea.top) * 0.35;
+              ctx.strokeStyle = A;
+              ctx.fillStyle = A;
+              ctx.lineWidth = 2;
+              // Arrow Q2 → Q3
+              ctx.beginPath();
+              ctx.moveTo(q2bar.x + 18, yMid);
+              ctx.lineTo(q3bar.x - 18, yMid);
+              ctx.stroke();
+              // Arrow head
+              ctx.beginPath();
+              ctx.moveTo(q3bar.x - 18, yMid);
+              ctx.lineTo(q3bar.x - 25, yMid - 5);
+              ctx.lineTo(q3bar.x - 25, yMid + 5);
+              ctx.closePath();
+              ctx.fill();
+              // Label above arrow
+              const labelX = (q2bar.x + q3bar.x) / 2;
+              ctx.font = 'bold 11px Inter, system-ui, sans-serif';
+              ctx.fillStyle = A;
+              ctx.textAlign = 'center';
+              ctx.fillText('Mechanical recovery', labelX, yMid - 14);
+              ctx.font = 'bold 10.5px Inter, system-ui, sans-serif';
+              ctx.fillText('≈ $20M margin', labelX, yMid - 2);
+              // Q3 inflection text
+              ctx.font = 'bold 10px Inter, system-ui, sans-serif';
+              ctx.fillStyle = A;
+              ctx.fillText('▲ AMENDMENTS', q3bar.x, chartArea.top + 12);
+              ctx.font = '9.5px Inter, system-ui, sans-serif';
+              ctx.fillStyle = '#1f4029';
+              ctx.fillText('back to baseline 5%', q3bar.x, chartArea.top + 25);
+            }}
+          }}
+          ctx.restore();
+        }}
+      }};
+
+      // Border styling for estimate vs actual (dashed for estimates/projections)
+      const borderDashes = sq.kinds.map(k => k === 'actual' ? [] : [4, 3]);
+
+      new Chart(sqEl, {{
+        type: 'bar',
+        data: {{
+          labels: sq.quarters,
+          datasets: [
+            {{
+              label: 'Retail volume (sold at full price)',
+              data: sq.retail,
+              backgroundColor: A,
+              borderColor: '#1f4029',
+              borderWidth: 1,
+              borderRadius: 2,
+              stack: 'volume',
+              order: 2,
+            }},
+            {{
+              label: 'Baseline breaker (~5% normal)',
+              data: sq.baseline_breaker,
+              backgroundColor: '#b5b5a8',
+              borderColor: '#888',
+              borderWidth: 1,
+              borderRadius: 2,
+              stack: 'volume',
+              order: 2,
+            }},
+            {{
+              label: 'Excess breaker (over-supply dumped)',
+              data: sq.excess_breaker,
+              backgroundColor: NEG,
+              borderColor: '#7a3d33',
+              borderWidth: 1.5,
+              borderDash: [3, 2],
+              borderRadius: 2,
+              stack: 'volume',
+              order: 2,
+            }},
+            {{
+              label: 'Supply mgmt cost ($M, right axis)',
+              type: 'line',
+              data: sq.supply_cost,
+              borderColor: '#7d3c4a',
+              backgroundColor: 'rgba(125,60,74,0.12)',
+              borderWidth: 2.5,
+              tension: 0.25,
+              fill: false,
+              pointRadius: 5,
+              pointBackgroundColor: '#7d3c4a',
+              pointBorderColor: '#fff',
+              pointBorderWidth: 1.5,
+              yAxisID: 'yCost',
+              order: 1,
+            }},
+          ],
+        }},
+        options: {{
+          responsive: true, maintainAspectRatio: false,
+          interaction: {{ mode: 'index', intersect: false }},
+          plugins: {{
+            legend: {{ position: 'bottom', labels: {{ font: {{ size: 11 }}, padding: 14 }} }},
+            tooltip: {{
+              callbacks: {{
+                afterBody: (ctx) => {{
+                  const i = ctx[0].dataIndex;
+                  const kind = sq.kinds[i];
+                  const note = sq.notes[i] || '';
+                  const total = (sq.retail[i] + sq.baseline_breaker[i] + sq.excess_breaker[i]).toFixed(1);
+                  return ['', '◇ ' + (kind === 'actual' ? 'ACTUAL' : kind === 'estimate' ? 'ESTIMATE' : 'PROJECTION'),
+                          '  Total production: ' + total + 'M dozens', '  ' + note];
+                }},
+              }},
+            }},
+          }},
+          scales: {{
+            x: {{
+              stacked: true, grid: {{ display: false }},
+              ticks: {{ font: {{ size: 11, weight: '600' }}, color: '#4a4f3f' }},
+            }},
+            y: {{
+              stacked: true, position: 'left',
+              grid: {{ color: 'rgba(0,0,0,0.04)' }},
+              ticks: {{ font: {{ size: 10 }}, callback: v => v + 'M' }},
+              title: {{ display: true, text: 'M dozens / quarter', font: {{ size: 10.5, weight: '600' }} }},
+              max: 45,
+            }},
+            yCost: {{
+              position: 'right', grid: {{ display: false }},
+              ticks: {{ font: {{ size: 10 }}, callback: v => '$' + v + 'M', color: '#7d3c4a' }},
+              title: {{ display: true, text: 'Supply mgmt cost ($M)', font: {{ size: 10.5, weight: '600' }}, color: '#7d3c4a' }},
+              min: 0, max: 30,
+            }},
+          }},
+        }},
+        plugins: [supplyAnnotPlugin],
+      }});
+    }}
 
     // ── Section 01 — Short + Setup-Over-Time (cash chart removed) ─────────
     const setup = d.setup;

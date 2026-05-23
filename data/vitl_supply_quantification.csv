@@ -1,0 +1,6 @@
+quarter,production_m,retail_volume_m,baseline_breaker_m,excess_breaker_m,supply_mgmt_cost_m,kind,note
+Q1 2026,40,35.0,2.0,3.0,4.9,actual,"$4.9M supply mgmt hit per May 7 call · 7.5% of production"
+Q2 2026E,40,33.0,2.0,5.0,23.0,estimate,"Trough · 13% of production · ~$23M supply mgmt guided"
+Q3 2026E,36,34.0,2.0,0.0,4.0,estimate,"Farmer amendments take effect · back to baseline 5%"
+Q4 2026E,36,34.0,2.0,0.0,4.0,estimate,"Normalized"
+FY27 norm,36,34.0,2.0,0.0,4.5,projection,"Annualized normalized cadence per quarter"
